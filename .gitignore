@@ -1,0 +1,55 @@
+# ---- R and RStudio ----
+.Rhistory
+.Rapp.history
+.RData
+.RDataTmp
+.Ruserdata
+.Rproj.user/
+.httr-oauth
+
+# Secrets: FRED_API_KEY lives in the user-level ~/.Renviron, never in the repo
+.Renviron
+
+# ---- renv (lockfile, activate script and settings are committed) ----
+renv/library/
+renv/local/
+renv/cellar/
+renv/lock/
+renv/python/
+renv/sandbox/
+renv/staging/
+
+# ---- targets pipeline cache (rebuilt by the pipeline) ----
+_targets/
+
+# ---- Data ----
+# Raw data are immutable and kept locally, not in git (third-party data;
+# not redistributed). Only the manifest data/raw/SOURCE.md is tracked.
+data/raw/*
+!data/raw/SOURCE.md
+*.zip
+*.xlsx
+
+# Superseded local notes
+bvar_mnemonics.csv
+data/reference.csv.txt
+
+# ---- Generated outputs (rebuilt by the pipeline) ----
+outputs/*
+!outputs/.gitkeep
+output/
+
+# ---- Quarto / R Markdown build artifacts ----
+*_cache/
+*_files/
+*.utf8.md
+*.knit.md
+.quarto/
+
+# ---- Shiny deployment ----
+rsconnect/
+# The app's copy of the export bundle (scripts/publish_bundle.R)
+app/bundle/
+
+# ---- Licensed third-party material (not redistributed) ----
+docs/crump_et_al.pdf

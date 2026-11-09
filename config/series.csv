@@ -1,0 +1,32 @@
+row,short_name,variable,source,id,transform,prior,api_aggregation,notes
+1,rgdp,Real GDP,QD,GDPC1,log,RW,,
+2,rpce,Real personal consumption expenditures,QD,PCECC96,log,RW,,
+3,rresinv,Real private residential fixed investment,QD,PRFIx,log,RW,,
+4,rnresinv,Real private nonresidential fixed investment,QD,PNFIx,log,RW,,
+5,rexp,Real exports of goods & services,QD,EXPGSC1,log,RW,,
+6,rimp,Real imports of goods & services,QD,IMPGSC1,log,RW,,
+7,rgov,Real govt. consumption expenditures & gross investment,QD,GCEC1,log,RW,,
+8,rfedgov,Real federal consumption expenditures & gross investment (chain-type quantity index),API,B823RA3Q086SBEA,log,RW,none,"Quarterly, no aggregation. See 3.5"
+9,gdpdefl,GDP chain price index,QD,GDPCTPI,log,RW,,
+10,pce,PCE chain price index,QD,PCECTPI,log,RW,,
+11,corepce,PCE less food & energy chain price index,QD,PCEPILFE,log,RW,,
+12,cpi,"CPI-U, all items",QD,CPIAUCSL,log,RW,,
+13,corecpi,"CPI-U, all items less food & energy",QD,CPILFESL,log,RW,,
+14,comphr,Business sector: compensation per hour (nominal),API,HCOMPBS,log,RW,none,"Quarterly, no aggregation"
+15,payems,"All employees, total nonfarm",QD,PAYEMS,log,RW,,
+16,urate,"Civilian unemployment rate, 16+",QD,UNRATE,raw,RW,,
+17,indpro,Industrial production index,QD,INDPRO,log,RW,,
+18,caputil,"Capacity utilization, manufacturing (SIC)",QD,CUMFNS,raw,RW,,
+19,houst,Housing starts,QD,HOUST,log,RW,,
+20,rdpi,Real disposable personal income,QD,DPIC96,log,RW,,
+21,umich,U. Michigan consumer sentiment,QD,UMCSENTx,raw,RW,,
+22,gs2,"2-year Treasury yield, constant maturity",API,GS2,raw,RW,avg,"Monthly: quarterly average. Before 1976:Q3, GSW 2-year par yield; see 3.6"
+23,gs5,"5-year Treasury yield, constant maturity",QD,GS5,raw,RW,,
+24,gs10,"10-year Treasury yield, constant maturity",QD,GS10,raw,RW,,
+25,aaa,Moody's seasoned Aaa corporate yield,QD,AAA,raw,RW,,
+26,baa,Moody's seasoned Baa corporate yield,QD,BAA,raw,RW,,
+27,usd,"Nominal trade-weighted US$ index, advanced foreign economies (extended back by QD with the major-currencies index)",QD,TWEXAFEGSMTHx,log,RW,,See 3.1
+28,sp500,S&P 500 composite,QD,S&P 500,log,RW,,
+29,wti,"Spot oil price, WTI (nominal $/barrel)",API,WTISPLC,log,RW,avg,Monthly: quarterly average. See 3.2
+30,gsci_nonenergy,Non-energy commodity prices (proxy for S&P GSCI non-energy),MANUAL,World Bank Pink Sheet non-energy price index,log,RW,,Proxy. See 3.3
+31,rvol,"S&P 500 realized volatility (annualized, %)",CALC,Yahoo ^GSPC daily closes,raw,WN,,See 3.4

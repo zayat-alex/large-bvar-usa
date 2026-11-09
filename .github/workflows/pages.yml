@@ -1,0 +1,56 @@
+# pages.yml: publishes the static website (site/) on GitHub Pages.
+#
+# The site is built locally by site/build_site.R, which writes site/data/
+# (the forecasts, from the app's bundle) and site/vendor/ (third-party
+# files); both are committed. This workflow builds nothing: it copies the
+# files a visitor needs into one folder and publishes it. The rest of
+# site/ (R/, build_site.R and the checks) is not served.
+#
+# Runs when the site changes on main, or by hand (Actions tab).
+
+name: Publish the website
+
+on:
+  push:
+    branches: [main]
+    paths: ["site/**", ".github/workflows/pages.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One publication at a time; a newer one waits rather than cancelling.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/configure-pages@v6
+      - name: Collect the served files
+        run: |
+          mkdir _site
+          for f in index.html site.js site.css data vendor; do
+            test -e "site/$f" || { echo "site/$f is missing: run site/build_site.R and commit its output"; exit 1; }
+            cp -r "site/$f" _site/
+          done
+          test -s _site/data/core.json && test -s _site/data/irf.json
+          du -sh _site
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

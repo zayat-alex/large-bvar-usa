@@ -1,0 +1,35 @@
+# Raw data pulls run by scripts/pull_raw.R (outside the targets pipeline).
+#
+# Each pull writes new, dated files under data/raw/ and never overwrites an
+# existing file. Record every pull in data/raw/SOURCE.md.
+
+# ---- ALFRED (FRED real-time data) ----
+# Full vintage history: every revision of each series made between
+# realtime_start and the retrieval date. realtime_start is the date of the first
+# stored QD vintage (FRED-QD_2018m05.csv), so any QD vintage can be matched with
+# the API data as they stood on the same date (docs/data.md, section 1).
+# Series are saved at their native frequency (q = quarterly, m = monthly);
+# monthly series are averaged to quarterly later, in our own code, because the
+# API cannot aggregate over a range of vintages.
+alfred:
+  out_dir: data/raw/alfred
+  realtime_start: 2018-05-01
+  series:
+    # Model inputs (docs/data.md, section 2)
+    - {id: B823RA3Q086SBEA, native: q, purpose: "row 8, rfedgov (chain-type quantity index, docs/data.md 3.5)"}
+    - {id: HCOMPBS,    native: q, purpose: "row 14, comphr"}
+    - {id: GS2,        native: m, purpose: "row 22, gs2"}
+    - {id: WTISPLC,    native: m, purpose: "row 29, wti (nominal $/barrel)"}
+    # Checks (docs/data.md, sections 3.2 and 4)
+    - {id: GDPC1,      native: q, purpose: "match ALFRED vintage date to the QD vintage"}
+    - {id: PCEPILFE,   native: m, purpose: "match ALFRED vintage date to the QD vintage"}
+    - {id: GS10,       native: m, purpose: "aggregation check (docs/data.md, check 4.4)"}
+    - {id: FGCEC1,     native: q, purpose: "row 8 index check against chained dollars (docs/data.md 3.5)"}
+
+# ---- Yahoo Finance daily closes (row 31, docs/data.md 3.4) ----
+# Requested from 1927 (well before 1972-09-01, the earliest date needed for a
+# complete 1973:Q1); the actual first date is checked on load.
+yahoo:
+  out_dir: data/raw/yahoo
+  symbol: ^GSPC
+  from: 1927-01-01

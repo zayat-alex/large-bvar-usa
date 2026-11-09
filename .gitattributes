@@ -1,0 +1,12 @@
+# Text files are checked out with LF line endings on every platform. The
+# pipeline (_targets.R) tracks config, report and scenario files by their
+# content hash, so a checkout that rewrote line endings would mark them, and
+# everything downstream, as changed.
+* text=auto eol=lf
+
+# Binary files: never converted.
+*.rds binary
+*.zip binary
+*.pdf binary
+*.png binary
+*.xlsx binary

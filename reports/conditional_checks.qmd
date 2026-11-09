@@ -1,0 +1,147 @@
+---
+title: "Conditional forecast checks"
+format:
+  html:
+    embed-resources: true
+    toc: true
+    df-print: kable
+params:
+  output_dir: "outputs/checks_conditional"
+execute:
+  echo: false
+  warning: false
+---
+
+```{r setup}
+# Reads the results saved by scripts/check_conditional.R; runs no checks itself.
+r   <- readRDS(file.path(params$output_dir, "conditional_checks.rds"))
+img <- function(name) knitr::include_graphics(file.path(params$output_dir, paste0(name, ".png")))
+tab <- function(df, digits = 3) knitr::kable(df, digits = digits, row.names = FALSE)
+verdict <- function(ok) if (isTRUE(ok)) "**PASS**" else "**FLAG**"
+sci <- function(x) formatC(x, format = "e", digits = 1)
+methods <- names(r$methods)
+all_moments <- do.call(rbind, lapply(methods, function(m) cbind(covid = m, r$methods[[m]]$moments)))
+all_paths <- do.call(rbind, lapply(methods, function(m) {
+  do.call(rbind, lapply(names(r$methods[[m]]$paths), function(nm) {
+    p <- r$methods[[m]]$paths[[nm]]
+    data.frame(covid = m, scenario = nm, draws = p$draws, max_abs_diff = p$max_abs_diff,
+               max_abs_level = p$max_abs_level, fixed_cells_max_error = p$fixed_cells_max_error,
+               ms_per_draw_kalman = p$ms_per_draw[["kalman"]], ms_per_draw_gaussian = p$ms_per_draw[["gaussian"]])
+  }))
+}))
+all_sim <- do.call(rbind, lapply(methods, function(m) cbind(covid = m, draw = r$methods[[m]]$simulated_draw,
+                                                            r$methods[[m]]$simulated)))
+```
+
+```{r quick, results = "asis"}
+if (isTRUE(r$run$quick)) cat("> **Quick run** (a few draws, to test the script). The numbers below are not the full comparison.\n\n")
+```
+
+**Model:** 31 variables, `r r$run$lags` lags; forecasts from `r r$methods[[1]]$origin` over `r r$run$horizon` quarters. **Draws:** the engine draws of each COVID method's estimation run (`r paste(sapply(methods, function(m) r$methods[[m]]$run_id), collapse = ", ")`), which include hyperparameter uncertainty. Seeds derived from `r r$run$seed`. Run time `r round(r$run$seconds / 60, 1)` minutes.
+
+**What is compared.** A scenario fixes future values of some variables in some quarters; the model fills in the rest. Given one posterior draw of (B, Σ), the future path is jointly Gaussian, and the scenario is a draw from that Gaussian conditional on the fixed cells. Two implementations compute it:
+
+- **Kalman** (`R/forecast_conditional.R`, `forecast_conditional_kalman()`): the algorithm of Crump et al. (2021), Section 2.3. The VAR in state-space form (paper eqs. 6–8), the fixed cells treated as observations and all other future cells as missing; Kalman filter and state smoother for the conditional mean, and the simulation smoother of Durbin and Koopman (2002) for draws.
+- **Gaussian** (`R/forecast_conditional.R`, `forecast_conditional_gaussian()`): the conditional normal distribution in closed form, written on the standardized shocks (Waggoner and Zha 1999): y = m + A u, the conditions are G u = d, and u = G'(GG')⁻¹d + (I − G'(GG')⁻¹G) z.
+
+The two files share no computational code. A third computation, the textbook conditional normal with the joint covariance built from powers of the companion matrix, is used as a reference on some draws.
+
+**Why the paths can be compared one by one.** The simulation smoother simulates an unconditional path y⁺ = m + A z and corrects it: draw = E[y | fixed cells] + y⁺ − E[y⁺ | its own fixed cells]. Since the conditional mean is linear in the fixed values, this equals E[y | fixed cells] + A(I − P)z with P = G'(GG')⁻¹G, which is the Gaussian method's draw for the same z. Both methods take z from the same random-number stream, so with the same seed they should give the same paths up to rounding. The comparison below tests this rather than assuming it.
+
+# Test scenarios
+
+Built around each run's median no-shock path (model units: log points for log series, percentage points for rates). They are test cases, not scenarios for publication.
+
+```{r}
+sc <- r$methods[[1]]$scenarios
+tab(data.frame(scenario = names(sc), do.call(rbind, sc)))
+```
+
+- `gdp_h1`: real GDP +1 one quarter ahead (paper Section 3.1); `gdp_h8_12`: real GDP +1 at 8 to 12 quarters (Section 3.1, medium-run case).
+- `many_cells_h1`: 2-year yield +0.25 one quarter ahead, with 20 activity, price and labour variables held at the baseline in that quarter (the shape of the recursive exercise of Section 3.2; used here as a case with many fixed cells in one quarter).
+- `mixed`: oil +10, 2- and 10-year yields +0.5 for 8 quarters, S&P 500 −5 in quarters 2, 4 and 6 only (skipped quarters).
+- `heavy`: ten variables +0.5 in all 20 quarters (200 fixed cells).
+
+# 1–2. Conditional means and variances, exactly
+
+For `r r$run$sizes$moment_draws` evenly spaced draws per COVID method and every scenario: the conditional mean (20 × 31) and the conditional variance of every cell, from both methods, and from the textbook formula on the first `r r$run$sizes$textbook_draws` of those draws. Variance differences are divided by the cell's unconditional variance. **Criteria:** means agree to 1e-8 (model units of order 10³, so about 1e-11 relative); relative variance differences below 1e-8; fixed cells have zero variance (below 1e-8 relative); no conditional variance above the unconditional one (beyond 1e-8 relative).
+
+```{r}
+agg <- aggregate(cbind(mean_max_abs_diff, var_max_rel_diff, textbook_mean_max_abs_diff, textbook_var_max_rel_diff,
+                       fixed_var_max_rel, var_above_unc_max_rel) ~ covid + scenario + fixed_cells,
+                 data = transform(all_moments, textbook_mean_max_abs_diff = ifelse(is.na(textbook_mean_max_abs_diff), -Inf, textbook_mean_max_abs_diff),
+                                  textbook_var_max_rel_diff = ifelse(is.na(textbook_var_max_rel_diff), -Inf, textbook_var_max_rel_diff)),
+                 FUN = max)
+for (v in names(agg)[-(1:3)]) agg[[v]] <- sci(agg[[v]])
+tab(agg)
+ok12 <- max(all_moments$mean_max_abs_diff) < 1e-8 && max(all_moments$var_max_rel_diff) < 1e-8 &&
+  max(all_moments$textbook_mean_max_abs_diff, na.rm = TRUE) < 1e-8 &&
+  max(all_moments$textbook_var_max_rel_diff, na.rm = TRUE) < 1e-8 &&
+  max(all_moments$fixed_var_max_rel) < 1e-8 && max(all_moments$var_above_unc_max_rel) < 1e-8
+```
+
+Each entry is the largest over the draws. Verdict: `r verdict(ok12)`.
+
+# 3. Paths with the same seed
+
+Both methods run with the same seed on the same draws, one path per draw: `r r$run$sizes$path_draws_main` draws for `r r$run$main_scenario`, `r r$run$sizes$path_draws_other` evenly spaced draws for the other scenarios. **Criteria:** the largest difference between the two methods' paths, over all draws and cells, below 1e-8; every path meets its fixed cells to 1e-8.
+
+```{r}
+pt <- all_paths
+pt$max_abs_diff <- sci(pt$max_abs_diff); pt$fixed_cells_max_error <- sci(pt$fixed_cells_max_error)
+tab(pt[, c("covid", "scenario", "draws", "max_abs_diff", "max_abs_level", "fixed_cells_max_error")], 1)
+ok3 <- max(all_paths$max_abs_diff) < 1e-8 && max(all_paths$fixed_cells_max_error) < 1e-8
+```
+
+`max_abs_level` is the largest value in the paths (log points), for scale. Verdict: `r verdict(ok3)`.
+
+# 4. Simulated paths against the exact distribution
+
+One draw per COVID method (the middle draw), scenario `r r$run$main_scenario`: many paths from each method, compared with the textbook conditional mean and covariance. The joint test uses all free cells and their exact covariance: N (m̄ − µ)′ V⁻¹ (m̄ − µ) is χ² with as many degrees of freedom as free cells. The per-cell z and variance ratios are shown for reference; the cells are strongly correlated, so their largest values and the share above 2 vary much more than for independent cells. **Criterion:** joint test p-value above 0.01 for each method.
+
+```{r}
+tab(all_sim[, c("covid", "draw", "method", "paths", "free_cells", "chi2", "chi2_p_value", "max_abs_z",
+                "typical_max_abs_z", "share_abs_z_above_2", "var_ratio_min", "var_ratio_max")], 3)
+ok4 <- all(all_sim$chi2_p_value > 0.01)
+```
+
+Verdict: `r verdict(ok4)`. (Comparison 3 shows that the two methods' paths are the same function of the random numbers; this comparison shows that the distribution of those paths is the right one.)
+
+# 5. What a user would see: quantiles at production size
+
+Scenario `r r$run$main_scenario`, `r r$run$sizes$path_draws_main` draws, one path each, in change from `r r$methods[[1]]$origin`. The last two columns are the difference between medians as a share of the 90% band width: Kalman against Gaussian with the same seed, and Gaussian with a second seed against the first (the size of simulation noise with one path per draw).
+
+```{r, results = "asis"}
+for (m in methods) {
+  q <- r$methods[[m]]$paths[[r$run$main_scenario]]$quantiles
+  cat("\n**", m, "**\n\n", sep = "")
+  print(tab(q[, c("variable", "horizon", "fixed", "q05_gaussian", "q50_gaussian", "q95_gaussian",
+                  "q50_kalman", "median_diff_kalman_share", "median_diff_seed_share")], 3))
+  cat("\n")
+}
+```
+
+```{r, fig.cap = "Scenario `mixed`, COVID method none: baseline 90% band (grey); scenario 68% and 90% bands and median, Gaussian method (blue); Kalman method median and 90% band edges, same seed (orange dashed); fixed cells (dots). Change from the last observation."}
+img("fans_none")
+```
+
+```{r, fig.cap = "The same for COVID method precovid_params."}
+img("fans_precovid_params")
+```
+
+# 6. Cost
+
+Milliseconds per posterior draw, one path per draw, 31 variables and 20 quarters (R 4.6.1, reference BLAS, single process).
+
+```{r}
+tab(all_paths[, c("covid", "scenario", "draws", "ms_per_draw_kalman", "ms_per_draw_gaussian")], 0)
+```
+
+At 1,000 draws a scenario takes about `r round(median(all_paths$ms_per_draw_kalman))` ms × 1,000 ≈ `r round(median(all_paths$ms_per_draw_kalman) / 60, 1)` minutes with the Kalman method and about `r round(median(all_paths$ms_per_draw_gaussian) / 60, 2)` minutes with the Gaussian method. The Kalman filter carries a 186 × 186 state covariance through 20 quarters for every draw; the Gaussian method works with the 620 standardized shocks directly.
+
+# Summary
+
+```{r}
+tab(data.frame(comparison = c("1-2 exact means and variances", "3 same-seed paths", "4 simulated vs exact distribution"),
+               verdict = c(verdict(ok12), verdict(ok3), verdict(ok4))))
+```

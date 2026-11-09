@@ -1,0 +1,149 @@
+---
+title: "Hyperparameter stability across origins"
+format:
+  html:
+    embed-resources: true
+    toc: true
+    df-print: kable
+params:
+  output_dir: "outputs/checks_hyper_stability"
+execute:
+  echo: false
+  warning: false
+---
+
+```{r setup}
+# Reads the results saved by scripts/check_hyper_stability.R; runs no checks itself.
+# summarize_bands() comes from the check's own functions (the report renders in reports/).
+source("../R/hyper_stability_checks.R")
+files <- list.files(params$output_dir, pattern = "^origin_.*[.]rds$", full.names = TRUE)
+files <- files[!grepl("_quick[.]rds$", files)]
+res   <- lapply(files, readRDS)
+res   <- res[order(sapply(res, function(r) r$run$origin))]
+tab   <- function(df, digits = 3) knitr::kable(df, digits = digits, row.names = FALSE)
+fig   <- function(name) file.path(params$output_dir, name)
+main_vars <- c("rgdp", "pce", "corepce", "urate", "gs2", "gs10")
+irf_resp  <- c("rgdp", "urate", "corepce", "gs10", "baa", "sp500")
+r1 <- res[[1]]
+```
+
+**Model:** COVID method `none`, 31 variables, 5 lags, the prior of `config/run.yml`. **Current run:** `r r1$run$current_run` (sample 1973Q1–2026Q2). **Origins run:** `r paste(sapply(res, function(r) r$run$origin), collapse = ", ")`.
+
+**Why.** Forecasts from past origins need the model estimated on the data available at each origin. Crump et al. (2021, Section 2.4) re-estimate everything at every origin, hyperparameters included. That costs a mode search and a Metropolis run per origin. If the hyperparameters estimated on a shorter sample are close to the current ones, and fixing them at the current values leaves forecasts and impulse responses unchanged, the current hyperparameters can be reused and only the coefficients redrawn.
+
+**What is computed at each origin.**
+
+1. The sample is cut at the origin (1973Q1 to the origin quarter).
+2. The mode of the hyperparameter posterior p(θ | Y) is found on that sample (θ = log h; three starts, as in production), and the Hessian at the mode gives the normal approximation to the posterior, with approximate standard deviations. No Metropolis run.
+3. **Modes compared.** For each hyperparameter, the origin's mode minus the current mode, on the log scale (0.1 ≈ 10% higher), and the same shift in units of the current posterior s.d. of log h (from the current run's 1,000 MCMC draws) and of the origin's approximate s.d. The mode says where each posterior is centred; the s.d. is the yardstick for how far apart two centres are.
+4. **Results compared.** On the origin's sample, `r r1$run$n_draws` draws of (B, Σ) are taken given the current mode and given the origin's mode, with the same random numbers, so the two differ only through the hyperparameters. Both sides use a mode, not the full hyperparameter posterior. Compared: unconditional forecasts from the origin (with shocks) and impulse responses (recursive gs2 shock, GIRF of rgdp), up to `r r1$run$horizon` quarters; quarters 1–12 are the main window. Measures: the difference of medians as a share of the current-mode 90% band width, and the ratio of band widths (origin mode / current mode).
+5. **Noise level.** The current-mode draws are repeated with other random numbers. The same two measures between the two current-mode runs show how large the measures get from simulation noise alone. A difference is meaningful only if it clearly exceeds this.
+
+6. **In growth rates and percentage points.** Bands of a BVAR are wide, so a change can be small against the band and still matter (half a point of GDP growth). The same draws are therefore also compared in the units forecasts are quoted in, path by path: year-on-year growth (log approximation, 100 × (log y_h − log y_{h−4})) and quarter-on-quarter annualized growth (4 × the quarterly log change) for log series, the level in percentage points (or index points) for rates and indexes. For impulse responses, the effect on year-on-year growth (r_h − r_{h−4}) for log series and the level response for the others. Each change is then read against the variable's own history (1973Q1–2019Q4, before the 2020–21 swings): the standard deviation and the 10–90 percentile range of its year-on-year growth (log series) or 4-quarter change (rates), or of its QoQ annualized growth for the quarterly measure.
+
+```{r scale}
+if (!is.null(r1$growth)) {
+  sc <- r1$growth$scale[r1$growth$scale$variable %in% main_vars, ]
+  tab(data.frame(variable = sc$variable, measure = sc$measure, sd = sc$sd, p10 = sc$p10, p90 = sc$p90,
+                 qoq_sd = sc$qoq_sd), 2)
+}
+```
+
+*Historical yardstick for the main variables: YoY growth in percent (log series) or 4-quarter change in percentage points (rates); `qoq_sd`: s.d. of QoQ annualized growth.*
+
+There is no pass/fail threshold. Read together with the prior sensitivity check (how much the results respond to moving λ and µ), the result is that exercises at past origins re-estimate the hyperparameters (`docs/methodology.md`, section 14).
+
+```{r origins, results = "asis"}
+for (r in res) {
+  o <- r$run$origin
+  cat("\n\n# Origin ", o, "\n\n", sep = "")
+  cat("Sample ", r$run$sample, " (", r$run$n_sample, " quarters). Mode search ",
+      round(r$run$mode_seconds / 60, 1), " min (starts in parallel); Hessian ",
+      round(r$run$hessian_seconds / 60, 1), " min. Smallest eigenvalue of −H: ",
+      signif(r$neg_hessian_min_eigen, 3), " (positive: the mode is a maximum).\n\n", sep = "")
+
+  cat("## Mode search\n\n")
+  mt <- r$mode_table[, c("start_factor", "convergence", "message", "log_post_theta", "lambda", "soc")]
+  print(tab(mt, 4))
+  cat("\n\nConvergence code 0 means the optimizer met its tolerance. The best start (highest log p(θ | Y)) is used.\n\n")
+
+  cat("## Hyperparameter modes\n\n")
+  s <- r$shift
+  key <- s[s$hyperparameter %in% c("lambda", "soc"), ]
+  print(tab(key[, c("hyperparameter", "mode_now", "mode_past", "log_ratio", "sd_now_mcmc",
+                    "sd_past_hessian", "shift_in_sd_now", "shift_in_sd_past")], 3))
+  cat("\n\n*λ (overall tightness) and µ (`soc`, sum-of-coefficients tightness). `log_ratio` = log(mode at origin / current mode). s.d. of log h: current from the MCMC draws, origin from the Hessian.*\n\n")
+  psi <- s[grepl("^psi_", s$hyperparameter), ]
+  cat("ψ (prior scale of each variable's residual variance): |shift| in current s.d.: median ",
+      round(median(abs(psi$shift_in_sd_now)), 2), ", largest ", round(max(abs(psi$shift_in_sd_now)), 2),
+      " (", psi$hyperparameter[which.max(abs(psi$shift_in_sd_now))], "); ",
+      sum(abs(psi$shift_in_sd_now) > 2), " of ", nrow(psi), " beyond 2 s.d. ",
+      "Modes within 1% of a search bound at the origin: ", sum(s$near_bound_past), ".\n\n", sep = "")
+  big <- psi[order(-abs(psi$shift_in_sd_now)), ][1:min(8, nrow(psi)), ]
+  print(tab(big[, c("hyperparameter", "mode_now", "mode_past", "log_ratio", "shift_in_sd_now",
+                    "shift_in_sd_past")], 3))
+  cat("\n\n*The eight ψ with the largest shifts.*\n\n")
+  cat("![Shift of every mode, in current posterior s.d. (lines at ±1 and ±2).](", fig(paste0("shift_", o, ".png")), ")\n\n", sep = "")
+
+  cat("## Forecasts from the origin\n\n")
+  fs <- summarize_bands(r$forecast[r$forecast$variable %in% main_vars, ], r$run$windows)
+  print(tab(fs, 2))
+  cat("\n\n*Main variables. `max_abs_median_diff`: largest |difference of medians| over the quarters of the window, as a share of the current-mode 90% band width. `width_ratio`: band width under the origin's mode over the current mode's. `seed_*`: the same measures for the current mode with other random numbers (noise level).*\n\n")
+  fa <- summarize_bands(r$forecast, r$run$windows)
+  cat("All 31 variables, quarters 1–12: largest |median difference| ",
+      round(max(fa$max_abs_median_diff[fa$horizons == "1-12"]), 2), " of the band width (",
+      fa$variable[fa$horizons == "1-12"][which.max(fa$max_abs_median_diff[fa$horizons == "1-12"])],
+      "); noise level ", round(max(fa$seed_max_abs_median_diff[fa$horizons == "1-12"]), 2),
+      ". Width ratios ", round(min(fa$width_ratio_min[fa$horizons == "1-12"]), 2), "–",
+      round(max(fa$width_ratio_max[fa$horizons == "1-12"]), 2), " (noise ",
+      round(min(fa$seed_width_ratio_min[fa$horizons == "1-12"]), 2), "–",
+      round(max(fa$seed_width_ratio_max[fa$horizons == "1-12"]), 2), ").\n\n", sep = "")
+  cat("![Forecasts from ", o, ", change since the origin (model units: 100 × log for log series, percentage points for rates). Blue: current mode (median, 68% and 90% bands). Orange: origin's mode (median solid, 68% dashed, 90% dotted).](",
+      fig(paste0("forecast_", o, ".png")), ")\n\n", sep = "")
+
+  cat("## Impulse responses\n\n")
+  w_irf <- list(`0-12` = 0:12, `13-20` = 13:20)
+  ir <- summarize_bands(r$irf_recursive[r$irf_recursive$variable %in% irf_resp, ], w_irf)
+  print(tab(ir, 2))
+  cat("\n\n*Recursive gs2 shock (+1 pp), selected responses. Slow variables are zero on impact by construction, so impact is left out for them.*\n\n")
+  ig <- summarize_bands(r$irf_girf_rgdp[r$irf_girf_rgdp$variable %in% c("urate", "corepce", "gs2", "payems"), ], w_irf)
+  print(tab(ig, 2))
+  cat("\n\n*GIRF of real GDP (+1 log point), selected responses.*\n\n")
+  cat("![Recursive gs2 shock. Blue: current mode. Orange: origin's mode.](", fig(paste0("irf_", o, ".png")), ")\n\n", sep = "")
+
+  if (!is.null(r$growth)) {
+    g <- r$growth
+    cat("## In growth rates and percentage points\n\n")
+    ga <- summarize_medians(g$annual[g$annual$variable %in% main_vars, ], g$scale, r$run$windows)
+    print(tab(ga, 3))
+    cat("\n\n*Forecasts, main variables. `max_abs_diff`: largest |difference of medians| over the window (origin's mode minus current mode), in YoY growth (%) for log series and level (pp) for rates; `max_abs_noise`: the same between two runs at the current mode with different random numbers. `diff_in_sd`, `diff_in_range`: `max_abs_diff` over the variable's historical s.d. and 10–90 range; `noise_in_sd`: the noise in the same units.*\n\n")
+    gq <- summarize_medians(g$quarterly[g$quarterly$variable %in% main_vars, ], g$scale,
+                            r$run$windows["1-12"], "quarterly")
+    print(tab(gq, 3))
+    cat("\n\n*QoQ annualized growth, log series among the main variables, quarters 1–12.*\n\n")
+    gall <- summarize_medians(g$annual, g$scale, r$run$windows["1-12"])
+    gall <- gall[order(-gall$diff_in_sd), ]
+    print(tab(head(gall, 8), 3))
+    cat("\n\n*All 31 variables, quarters 1–12: the eight with the largest change relative to their history. Variables whose change exceeds the noise: ",
+        sum(gall$max_abs_diff > gall$max_abs_noise), " of ", nrow(gall), ".*\n\n", sep = "")
+    gi <- summarize_medians(g$irf_recursive[g$irf_recursive$variable %in% irf_resp, ], g$scale,
+                            list(`0-12` = 0:12, `13-20` = 13:20))
+    print(tab(gi, 3))
+    cat("\n\n*Recursive gs2 shock (+1 pp): effect on YoY growth (log series) or level (rates), per 1 pp shock.*\n\n")
+  }
+
+  cat("## Largest companion root\n\n")
+  mr <- r$max_root
+  print(tab(data.frame(hyperparameters = c("current mode", "origin's mode"),
+                       median = c(median(mr$ref), median(mr$alt)),
+                       share_above_1 = c(mean(mr$ref > 1), mean(mr$alt > 1)),
+                       max = c(max(mr$ref), max(mr$alt))), 4))
+  cat("\n\n")
+}
+```
+
+# Caveats
+
+- Both sides use a single hyperparameter vector (a mode), so hyperparameter uncertainty is left out on both. The comparison isolates the effect of where the hyperparameters are centred.
+- The data are the latest vintage, not what was available at the origin.
+- The origin's s.d. comes from the normal approximation at the mode (Hessian), not from MCMC draws.

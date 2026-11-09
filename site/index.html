@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<!--
+  index.html: the static version of the website (the Shiny app in app/).
+
+  The page is filled in by site.js from data/core.json (and data/irf.json
+  for the impulse responses), written by build_site.R from the app's
+  bundle. Third-party files are in vendor/, also written by build_site.R.
+  The layout and class names follow the app's (app/R/ui.R), so the app's
+  stylesheet (vendor/app.css) applies unchanged.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>US Economy - BVAR Forecasts</title>
+  <!-- Stylesheets in the order the app loads them. -->
+  <link rel="stylesheet" href="vendor/shiny/shiny-sass.css">
+  <link rel="stylesheet" href="vendor/bootstrap/bootstrap.min.css">
+  <link rel="stylesheet" href="vendor/selectize/selectize.css">
+  <link rel="stylesheet" href="vendor/fontawesome/css/all.min.css">
+  <link rel="stylesheet" href="vendor/fontawesome/css/v4-shims.min.css">
+  <link rel="stylesheet" href="vendor/bslib/bslib-component-css.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&amp;display=swap">
+  <link rel="stylesheet" href="vendor/app.css">
+  <link rel="stylesheet" href="site.css">
+  <script src="vendor/selectize/jquery.min.js"></script>
+  <script src="vendor/selectize/selectize.min.js"></script>
+  <script src="vendor/selectize/selectize-plugin-a11y.min.js"></script>
+  <script src="vendor/bootstrap/bootstrap.bundle.min.js"></script>
+  <script src="vendor/plotly/plotly-latest.min.js"></script>
+  <script src="site.js" defer></script>
+</head>
+<body>
+  <div class="app">
+    <aside class="side">
+      <h1>US Economy - BVAR Forecasts</h1>
+      <nav aria-label="Tabs">
+        <div id="page" class="form-group shiny-input-radiogroup shiny-input-container" role="radiogroup" aria-label="Tabs">
+          <div class="shiny-options-group" id="page-tabs"></div>
+        </div>
+      </nav>
+    </aside>
+    <div class="main">
+      <header class="settings">
+        <div class="settings-row" id="header-forecast"></div>
+        <div class="settings-row" id="header-irf" hidden></div>
+      </header>
+      <main class="content" id="content">
+        <p class="placeholder" id="loading">Loading the forecasts…</p>
+      </main>
+      <footer class="footer" id="footer"></footer>
+    </div>
+  </div>
+</body>
+</html>

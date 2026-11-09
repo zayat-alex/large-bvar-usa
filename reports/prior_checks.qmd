@@ -1,0 +1,173 @@
+---
+title: "Prior and hyperparameter checks"
+format:
+  html:
+    embed-resources: true
+    toc: true
+    df-print: kable
+params:
+  output_dir: "outputs/checks_priors"
+execute:
+  echo: false
+  warning: false
+---
+
+```{r setup}
+# Reads the results saved by scripts/check_priors.R; runs no checks itself.
+r    <- readRDS(file.path(params$output_dir, "prior_checks.rds"))
+img  <- function(name) knitr::include_graphics(file.path(params$output_dir, paste0(name, ".png")))
+tab  <- function(df, digits = 4) knitr::kable(df, digits = digits, row.names = FALSE)
+verdict <- function(ok) if (isTRUE(ok)) "**PASS**" else "**FLAG**"
+```
+
+**Model checked:** `r length(r$run$variables)` variables (`r paste(r$run$variables, collapse = ", ")`), `r r$run$lags` lags, sample `r r$run$sample`, COVID method `r r$run$covid_method`. BVAR version `r r$run$bvar_version`. Run `r format(r$run$time, "%Y-%m-%d %H:%M")`.
+
+**What is being checked.** The hyperparameters λ (overall tightness), µ (sum-of-coefficients tightness) and ψ (the scale of each variable) are chosen by the posterior of the hyperparameters: the marginal likelihood of the data times the hyperpriors (Giannone, Lenza and Primiceri 2015). Every draw of the model depends on that function. These checks test, on a small model where every number can be inspected, (1–2) that the prior is built as intended, (3) that the package's log posterior agrees with an independent implementation written from the formulas (`R/estimate_ml.R`), and (4–5) how the mode depends on the settings that the paper does not specify.
+
+Verdicts: **PASS** when the stated criterion holds; **FLAG** when it does not. A flag is a finding to be explained, not an error to be hidden.
+
+# 1. Prior mean placement
+
+**What:** BVAR builds the prior mean matrix b (K × n) from a vector of own-first-lag means. Intended: 1 for random-walk variables, 0 for realized volatility (white noise), 0 everywhere else.
+**How:** read the matrix stored in the fitted object; compare the diagonal of the lag-1 block with the intended vector, and check every other entry is 0.
+**Criterion:** exact equality.
+
+```{r}
+c1 <- r$check1_prior_mean
+tab(c1)
+```
+
+Verdict: `r verdict(all(c1$ok))`.
+
+# 2. Posterior mean under a very tight prior
+
+**What:** as λ → 0 the prior dominates, so the posterior mean of every lag coefficient must approach its prior mean.
+**How:** BVAR's posterior mean of the coefficients at λ = `r r$check2_tight$lambda`, µ at its prior mode, ψ at the starting values; compare all lag coefficients with b.
+**Criterion:** largest absolute deviation below 0.001.
+
+```{r}
+tab(r$check2_tight$table, 6)
+```
+
+Largest absolute deviation over all lag coefficients: `r signif(r$check2_tight$max_abs_dev, 3)`. Verdict: `r verdict(r$check2_tight$max_abs_dev < 1e-3)`.
+
+**Limit along λ.** The deviation is the pull of the data under a finite prior variance λ²/(s^α ψⱼ), so it should shrink in proportion to λ² as λ decreases, whatever µ is.
+**Criterion:** once λ is small enough for the prior to dominate (steps ending at λ ≤ 1e-5), each tenfold decrease in λ divides the deviation by about 100 (ratio between 0.005 and 0.02), and the deviation at λ = 1e-6 is below 1e-6. The first step, from λ = 1e-3, is shown but not judged: there the data still matter beyond the leading term.
+
+```{r}
+s2 <- r$check2_sequence
+tab(s2, 8)
+judged  <- s2$lambda <= 1e-5
+ok_rate <- all(s2$ratio_to_previous[judged] > 0.005 & s2$ratio_to_previous[judged] < 0.02)
+```
+
+Verdict: `r verdict(ok_rate && tail(s2$max_abs_dev, 1) < 1e-6)`.
+
+# 3. Log posterior: BVAR against an independent implementation
+
+**What:** the log posterior of the hyperparameters, log p(Y | γ) + log p(γ), where the sum-of-coefficients prior enters as dummy observations and p(Y | γ) = p([Y⁺; Y] | γ) / p(Y⁺ | γ).
+**How:** at each point, three values:
+
+- `bvar`: the package's value (its internal function `bv_ml`, as used by `bvar()`);
+- `direct_dummy_at_b`: the direct implementation, with the dummy-only term p(Y⁺ | γ) evaluated at the prior mean b (the way the package source does it);
+- `direct_textbook`: the direct implementation with the standard formula, where p(Y⁺ | γ) uses the posterior mean of the coefficients given the dummy observations.
+
+The two direct versions coincide whenever the dummy observations are fitted exactly by b. For the sum-of-coefficients dummies that holds for a variable with prior mean 1 on its own first lag (X⁺b reproduces Y⁺), and not for a variable with prior mean 0.
+
+**Criteria:** (a) `bvar` equals `direct_dummy_at_b` to within 1e-6 at ordinary values of the hyperparameters (implementation check); (b) `bvar` equals `direct_textbook` to within 1e-6 (formula check).
+
+## 3.1 Model as specified (realized volatility with prior mean 0)
+
+```{r}
+c3 <- r$check3_as_specified
+tab(c3, 6)
+ordinary <- c3$mu >= 0.01
+```
+
+(a) Largest |bvar − direct_dummy_at_b| at points with µ ≥ 0.01: `r signif(max(abs(c3$diff_bvar_vs_dummy_at_b[ordinary])), 3)`. Verdict: `r verdict(max(abs(c3$diff_bvar_vs_dummy_at_b[ordinary])) < 1e-6)`.
+(b) Largest |bvar − direct_textbook|: `r signif(max(abs(c3$diff_bvar_vs_textbook)), 3)`. Verdict: `r verdict(max(abs(c3$diff_bvar_vs_textbook)) < 1e-6)`.
+
+## 3.2 Every variable with prior mean 1 (realized volatility set to random walk for this check only)
+
+```{r}
+c3rw <- r$check3_all_rw
+tab(c3rw, 6)
+```
+
+(a) Largest |bvar − direct_dummy_at_b|: `r signif(max(abs(c3rw$diff_bvar_vs_dummy_at_b)), 3)`. (b) Largest |bvar − direct_textbook|: `r signif(max(abs(c3rw$diff_bvar_vs_textbook)), 3)`. Verdict (both below 1e-6): `r verdict(max(abs(c3rw$diff_bvar_vs_textbook)) < 1e-6 && max(abs(c3rw$diff_bvar_vs_dummy_at_b)) < 1e-6)`.
+
+BVAR's mode in this variant: λ = `r signif(r$check3_all_rw_optim$par[["lambda"]], 4)`, µ = `r signif(r$check3_all_rw_optim$par[["soc"]], 4)`.
+
+## 3.3 The log posterior along µ
+
+Other hyperparameters fixed at BVAR's mode for the model as specified. Where the two curves differ, the package's mode in µ differs from the textbook one.
+
+```{r}
+#| fig-cap: "Log posterior along mu: BVAR (blue) and the textbook formula (orange)."
+img("mu_profile")
+```
+
+# 4. ψ hyperprior and ψ starting values
+
+**What:** the paper estimates ψ but does not state its hyperprior or the starting values and bounds of the search. Three hyperpriors are compared, each an inverse gamma on ψⱼ:
+
+```{r}
+tab(r$run$hyperpriors, 6)
+```
+
+and two ways of setting the starting values and bounds:
+
+- `ar_variance`: start at the OLS AR(p) residual variance of each variable (ψ is a variance scale: with d = n + 2, ψⱼ is the prior mean of Σⱼⱼ); bounds start / `r r$run$prior_cfg$psi$bound_factor` and start × `r r$run$prior_cfg$psi$bound_factor`;
+- `ar_sd_auto`: the package default, start at the AR(p) residual standard deviation (maximum likelihood fit); bounds start / 100 and start × 100.
+
+```{r}
+#| fig-cap: "The three hyperpriors on psi (log density); ticks mark the AR(p) residual variances of the six variables."
+img("psi_hyperpriors")
+```
+
+**How:** for each of the 6 configurations, the mode found by BVAR and the mode of the textbook log posterior (same optimizer, L-BFGS-B, same start and bounds). `log_post_textbook` evaluates both modes with the textbook formula, so the two rows of a configuration can be compared: the textbook mode should have the higher value.
+**Criteria:** optimizer converged (code 0); no hyperparameter at a bound.
+
+```{r}
+g <- r$check4_grid$summary
+tab(g, 4)
+```
+
+Configurations with a non-zero convergence code: `r sum(g$convergence != 0)` of `r nrow(g)`. Modes with a hyperparameter at a bound: `r sum(g$at_bound != "")` of `r nrow(g)`.
+
+ψ at the mode relative to each variable's AR(p) residual variance:
+
+```{r}
+#| fig-cap: "psi at the mode divided by the AR(p) residual variance. Colour: hyperprior; filled: ar_variance start; open: ar_sd_auto start."
+#| fig-width: 11
+img("psi_modes")
+```
+
+```{r}
+p <- r$check4_grid$psi
+p <- p[order(p$source, p$hyperprior, p$psi_start), ]
+tab(p[, c("source", "hyperprior", "psi_start", "variable", "psi", "ar_variance",
+          "ratio_to_ar_variance", "min", "max", "at_bound")], 4)
+```
+
+# 5. Centring of the sum-of-coefficients dummies
+
+**What:** the dummies are Y⁺ = diag(ȳ)/µ. Giannone, Lenza and Primiceri (2015) set ȳ to the mean of the first p observations of the sample; the package uses the first p rows after the initial lags.
+**How:** textbook mode under each convention, configured hyperprior and starting values.
+**Criterion:** none fixed; the size of the difference is reported.
+
+```{r}
+tab(r$check5_soc_centring, 4)
+```
+
+# 6. Names and starting values
+
+Estimated hyperparameters, as named in the fitted object: `r paste(r$base$hyper_names, collapse = ", ")` (ψ numbered in the column order of the data: `r paste(r$run$variables, collapse = ", ")`).
+
+ψ starting values under both options (OLS AR(p) residual variance and standard deviation; the package's automatic start and bounds):
+
+```{r}
+tab(r$check6_psi_starts, 4)
+```
+
+Optimizer result for the configured prior: convergence code `r r$base$optim$convergence` (`r r$base$optim$message`).

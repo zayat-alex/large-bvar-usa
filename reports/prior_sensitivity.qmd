@@ -1,0 +1,149 @@
+---
+title: "Sensitivity to the hyperparameters"
+format:
+  html:
+    embed-resources: true
+    toc: true
+    df-print: kable
+params:
+  output_dir: "outputs/checks_prior_sensitivity"
+execute:
+  echo: false
+  warning: false
+---
+
+```{r setup}
+# Reads the results saved by scripts/check_prior_sensitivity.R; runs no checks itself.
+# summarize_bands() comes from the check functions (the report renders in reports/).
+source("../R/hyper_stability_checks.R")
+r   <- readRDS(file.path(params$output_dir, "prior_sensitivity.rds"))
+tab <- function(df, digits = 3) knitr::kable(df, digits = digits, row.names = FALSE)
+fig <- function(name) file.path(params$output_dir, name)
+main_vars <- c("rgdp", "pce", "corepce", "urate", "gs2", "gs10")
+irf_resp  <- c("rgdp", "urate", "corepce", "gs10", "baa", "sp500")
+
+#' One row per variant: largest |median difference| and width-ratio range
+#' over the chosen variables and horizons, with the noise level.
+variant_table <- function(cmp_list, vars, horizons) {
+  do.call(rbind, lapply(names(cmp_list), function(nm) {
+    s <- summarize_bands(cmp_list[[nm]][cmp_list[[nm]]$variable %in% vars, ], list(h = horizons))
+    data.frame(variant = nm,
+               max_abs_median_diff = max(s$max_abs_median_diff),
+               worst_variable = s$variable[which.max(s$max_abs_median_diff)],
+               width_ratio_min = min(s$width_ratio_min), width_ratio_max = max(s$width_ratio_max),
+               noise_max_abs_median_diff = max(s$seed_max_abs_median_diff))
+  }))
+}
+```
+
+**Model:** COVID method `none`, 31 variables, 5 lags, the prior of `config/run.yml`, sample `r r$run$sample`. **Reference:** the current run `r r$run$current_run`, at its hyperparameter mode. `r r$run$n_draws` draws of (B, Σ) per setting.
+
+**What is checked.** The hyperparameters set how tight the prior is: λ the overall tightness of the Minnesota prior, µ the tightness of the sum-of-coefficients prior, ψ the scale of each variable's residual variance in the prior (Crump et al. 2021, Section 2.2). They are estimated, and the production run averages over their posterior. Here each is moved away from its mode, one at a time, the coefficients are drawn given the moved value, and forecasts (from the last quarter) and impulse responses are compared with those at the mode. Two kinds of move:
+
+- **Stress:** half or twice the mode (for ψ, all 31 together). Far outside the posterior; they show how strongly the results depend on the prior.
+- **Posterior range:** λ or µ at the mode ± 2 posterior standard deviations of log h (from the current run's MCMC draws). The edge of what the data allow.
+
+Every setting uses the same random numbers, so differences come from the hyperparameters only. A rerun at the mode with other random numbers gives the noise level. Measures, as in the stability check: the difference of medians as a share of the reference's 90% band width, and the ratio of band widths (variant / mode). Quarters 1–12 are the main window.
+
+**How to read it with the stability check.** Between origins, the hyperparameter modes moved by up to about 0.2 on the log scale (µ at 2016Q2), within the posterior-range variants here. If those variants move results little, re-estimating the hyperparameters at past origins matters little.
+
+# Variants
+
+```{r variants}
+info <- r$info
+tab(data.frame(variant = info$variant, kind = info$kind,
+               value = ifelse(is.na(info$hyper_value), "all ψ scaled", format(signif(info$hyper_value, 3))),
+               change_in_log_h = info$theta_change,
+               log_posterior_vs_mode = info$log_post_vs_mode), 3)
+```
+
+*Mode: λ = `r signif(exp(r$theta_mode[["lambda"]]), 3)`, µ = `r signif(exp(r$theta_mode[["soc"]]), 3)`. Posterior s.d. of log h: λ `r signif(r$sd_theta[["lambda"]], 3)`, µ `r signif(r$sd_theta[["soc"]], 3)`. `log_posterior_vs_mode`: log p(θ | Y) at the variant minus at the mode; −2 corresponds to about 2 s.d. under a normal posterior, −70 and below is far outside it.*
+
+# Forecasts
+
+```{r fc-main}
+tab(variant_table(r$forecast, main_vars, 1:12), 3)
+```
+
+*Main variables (`r paste(main_vars, collapse = ", ")`), quarters 1–12. `max_abs_median_diff`: largest |difference of medians| as a share of the 90% band width at the mode; `noise_*`: the same measure between two runs at the mode with different random numbers.*
+
+```{r fc-all}
+tab(variant_table(r$forecast, unique(r$forecast[[1]]$variable), 1:12), 3)
+```
+
+*All 31 variables, quarters 1–12.*
+
+```{r fc-late}
+tab(variant_table(r$forecast, main_vars, 13:20), 3)
+```
+
+*Main variables, quarters 13–20.*
+
+![Difference of forecast medians from the mode's, as a share of the mode's 90% band width, by quarter. Blue λ, orange µ, green ψ; solid = moved up, dashed = moved down; thick = stress (×2, ×½), thin = ±2 posterior s.d. Grey: largest simulation-noise difference.](`r fig("sensitivity_forecast.png")`)
+
+# Impulse responses
+
+```{r irf-rec}
+tab(variant_table(r$irf_recursive, irf_resp, 0:12), 3)
+```
+
+*Recursive gs2 shock, responses `r paste(irf_resp, collapse = ", ")`, horizons 0–12 (slow variables' impact, zero by construction, left out).*
+
+```{r irf-girf}
+tab(variant_table(r$irf_girf_rgdp, c("urate", "corepce", "gs2", "payems"), 0:12), 3)
+```
+
+*GIRF of real GDP, responses urate, corepce, gs2, payems, horizons 0–12.*
+
+![Recursive gs2 shock: difference of response medians from the mode's, as a share of the mode's 90% band width. Colours and lines as above.](`r fig("sensitivity_irf.png")`)
+
+# In growth rates and percentage points
+
+Bands of a BVAR are wide, so a change can be small against the band and still matter. The same draws are compared in the units forecasts are quoted in, path by path: year-on-year growth (log approximation) for log series, the level in percentage points for rates and indexes; impulse responses as the effect on year-on-year growth (log series) or the level response. Each change is read against the variable's history (1973Q1–2019Q4): its s.d. and 10–90 percentile range of YoY growth (log series) or 4-quarter change (rates).
+
+```{r growth}
+growth_table <- function(part, vars, horizons, measure = "annual") {
+  do.call(rbind, lapply(names(r$growth), function(nm) {
+    s <- summarize_medians(r$growth[[nm]][[part]][r$growth[[nm]][[part]]$variable %in% vars, ],
+                           r$scale, list(h = horizons), measure)
+    k <- which.max(s$diff_in_sd)
+    data.frame(variant = nm, worst_variable = s$variable[k], max_abs_diff = s$max_abs_diff[k],
+               noise = s$max_abs_noise[k], diff_in_sd = s$diff_in_sd[k],
+               diff_in_range = s$diff_in_range[k], noise_in_sd = max(s$noise_in_sd))
+  }))
+}
+if (!is.null(r$growth)) tab(growth_table("annual", main_vars, 1:12), 3)
+```
+
+*Forecasts, main variables, quarters 1–12: per variant, the variable with the largest change relative to its history. `max_abs_diff` in YoY growth (%) or level (pp); `noise` the same between two runs at the mode with different random numbers; `diff_in_sd`, `diff_in_range` relative to the variable's historical s.d. and 10–90 range.*
+
+```{r growth-rgdp}
+if (!is.null(r$growth)) {
+  one_var <- function(v) do.call(rbind, lapply(names(r$growth), function(nm) {
+    s <- summarize_medians(r$growth[[nm]]$annual[r$growth[[nm]]$annual$variable == v, ], r$scale, list(h = 1:12))
+    data.frame(variant = nm, variable = v, max_abs_diff = s$max_abs_diff, noise = s$max_abs_noise,
+               diff_in_sd = s$diff_in_sd)
+  }))
+  tab(rbind(one_var("rgdp"), one_var("corepce"), one_var("urate")), 3)
+}
+```
+
+*Real GDP and core PCE (YoY growth, %) and the unemployment rate (pp), quarters 1–12.*
+
+```{r growth-all}
+if (!is.null(r$growth)) tab(growth_table("annual", unique(r$growth[[1]]$annual$variable), 1:12), 3)
+```
+
+*All 31 variables, quarters 1–12.*
+
+```{r growth-irf}
+if (!is.null(r$growth)) tab(growth_table("irf_recursive", irf_resp, 0:12), 3)
+```
+
+*Recursive gs2 shock (+1 pp), effect on YoY growth (log series) or level (rates), horizons 0–12.*
+
+# Caveats
+
+- One hyperparameter moves at a time; joint moves are not checked.
+- Each setting fixes the hyperparameters at one value, so the bands leave out hyperparameter uncertainty; the production run includes it.
+- One origin (the last quarter) and COVID method `none` only.

@@ -1,0 +1,131 @@
+---
+title: "MCMC diagnostics of an estimation run"
+format:
+  html:
+    embed-resources: true
+    toc: true
+    df-print: kable
+params:
+  run_dir: "outputs"
+execute:
+  echo: false
+  warning: false
+---
+
+```{r setup}
+# Reads the files of one run (written by the pipeline: R/estimate_run.R,
+# write_run_files(); figures by R/mcmc_diagnostics.R, save_mcmc_plots()).
+# Runs no estimation itself.
+dir  <- params$run_dir
+meta <- jsonlite::read_json(file.path(dir, "meta.json"))
+s    <- readRDS(file.path(dir, "mcmc_summary.rds"))
+est  <- readRDS(file.path(dir, "estimation.rds"))
+vars <- setdiff(names(readRDS(file.path(dir, "covid.rds"))$est_data), "quarter")
+img  <- function(name) knitr::include_graphics(file.path(dir, "plots", paste0(name, ".png")))
+tab  <- function(df, digits = 3) knitr::kable(df, digits = digits, row.names = FALSE)
+lab  <- function(x) {
+  x[x == "soc"] <- "mu"
+  x[x == "log_post"] <- "log p(theta | Y)"
+  i <- grepl("^psi[0-9]+$", x)
+  x[i] <- paste0("psi ", vars[as.integer(sub("psi", "", x[i]))])
+  x
+}
+m  <- meta$mcmc
+n_keep <- m$n_keep_per_chain
+```
+
+**Run:** `r meta$run_id`. **COVID method:** `r meta$covid_method`. **Estimation sample:** `r meta$data$estimation_sample[[1]]`–`r meta$data$estimation_sample[[2]]` (`r meta$data$estimation_quarters` quarters; the first `r meta$model$lags` serve as initial lags). **Lags:** `r meta$model$lags`. **Data:** QD vintage file `r meta$data$qd_vintage_file`, API as-of date `r meta$data$api_realtime_date`; the forecast history ends `r meta$data$origin_last_quarter`.
+
+**Sampler** (Giannone, Lenza and Primiceri 2015, Appendix B): random-walk Metropolis on θ = log(h), h = (λ, µ, ψ₁…ψ₃₁), proposal N(θ, c W) with W the inverse of minus the Hessian at the posterior mode; c tuned during the first `r m$tuning$adapt_share * 100`% of the burn-in, then fixed. **MCMC profile:** `r m$profile`. **Chains:** `r m$n_chains`, each `r format(m$n_draw, big.mark = ",")` iterations, of which `r format(m$n_burn, big.mark = ",")` burn-in, thinned every `r m$n_thin`: `r format(n_keep, big.mark = ",")` retained draws per chain, `r format(n_keep * m$n_chains, big.mark = ",")` in all. **Starts:** `r if (m$chain_start$type == "mode") "every chain at the mode" else sprintf("overdispersed, mode + %s x (approximate posterior s.d.) in random directions", m$chain_start$scale)`. **Seeds:** chains `r paste(unlist(m$chain_seeds), collapse = ", ")`; starts `r paste(unlist(m$start_seeds), collapse = ", ")`; coefficient draws `r m$coefficient_seed`. **Draws for the engine:** `r format(m$n_engine_draws, big.mark = ",")`, evenly spaced over the pooled retained draws, one (Σ, B) each.
+
+**How to read this report.** The hyperparameter chain is the only Markov-chain part of the estimator: given each hyperparameter draw, Σ and B are drawn exactly. Effective sample size (ESS) is the number of independent draws the autocorrelated chains are worth, summed over chains. R-hat compares the spread between chains with the spread within them; values near 1 mean the chains agree, which is informative only because they started apart. Geweke's z compares the mean of the first 10% of each chain with that of its last 50%. Intervals are posterior (credible) intervals.
+
+# 1. Convergence targets
+
+```{r targets}
+if (is.null(s$convergence)) {
+  cat("No convergence targets were given for this run.\n")
+} else {
+  d <- s$convergence
+  d$result <- ifelse(d$pass, "pass", "FLAG")
+  d$worst <- vapply(d$worst, function(w) {
+    nm <- sub(".*\\((.*)\\)$", "\\1", w); sub(nm, lab(nm), w, fixed = TRUE)
+  }, character(1))
+  tab(d[, c("check", "worst", "threshold", "result")])
+}
+```
+
+Multivariate R-hat (Brooks and Gelman 1998) over all `r length(vars) + 2` hyperparameters: `r signif(s$rhat_multivariate, 4)`.
+
+# 2. Chains
+
+```{r chains}
+d <- s$chains
+d$minutes <- d$seconds / 60
+tab(d[, c("chain", "seed", "acceptance", "scale", "log_post_start", "start_clipped", "minutes")])
+```
+
+`acceptance` is the share of accepted proposals after the burn-in; `scale` the final c; `log_post_start` the log posterior (θ scale) at the start; `start_clipped` the number of start coordinates moved inside a search bound. For comparison, the log posterior at the mode is `r format(max(est$mode$table$log_post_theta), nsmall = 2)`; the trace below shows how quickly each chain climbs from its start to that level.
+
+```{r tuning, fig.cap = "Tuning of the proposal scale during the burn-in: c (left) and the acceptance rate of each tuning window (right; grey band: target range)."}
+img("tuning")
+```
+
+# 3. Trace plots
+
+```{r legend}
+img("chain_legend")
+```
+
+```{r trace-main, fig.cap = "Traces of log λ, log µ and the log posterior. Grey: burn-in (discarded)."}
+img("trace_main")
+```
+
+```{r trace-psi, fig.cap = "Traces of log ψ for every variable. Grey: burn-in (discarded)."}
+img("trace_psi")
+```
+
+# 4. Every hyperparameter
+
+```{r hyper}
+d <- s$hyper
+d$hyperparameter <- lab(d$hyperparameter)
+names(d)[names(d) == "geweke_max_abs_z"] <- "max |Geweke z|"
+names(d)[names(d) == "share_near_bound"] <- "near bound"
+tab(d, digits = 4)
+```
+
+Quantiles are on the original scale (the log posterior row: on the θ scale). `ess_per_1000` is the ESS per 1,000 retained iterations of one chain, the rate used to size runs. With `r nrow(d)` quantities and `r m$n_chains` chains, |Geweke z| above 2 is expected for a few by chance; values well above 3 deserve a look at the trace.
+
+```{r position, fig.cap = "Posterior of each hyperparameter within its search bounds (log10 of the ratio to its starting value). Grey: bounds; blue: 5-95% posterior interval and median."}
+img("hyper_position")
+```
+
+```{r prior, fig.cap = "Posterior of λ and µ against their Gamma hyperpriors."}
+img("lambda_mu_prior")
+```
+
+# 5. Coefficient draws
+
+Σ is positive definite in `r s$sigma_pd * 100`% of the `r format(m$n_engine_draws, big.mark = ",")` kept draws.
+
+**Stability.** Largest companion-matrix eigenvalue modulus across kept draws: median `r signif(s$max_modulus_summary[["median"]], 4)`, 95th percentile `r signif(s$max_modulus_summary[["q95"]], 4)`, maximum `r signif(s$max_modulus_summary[["max"]], 4)`; share above 1 (explosive): `r signif(s$max_modulus_summary[["share_above_1"]], 3)`. No stationarity restriction is imposed (Crump et al. 2021 impose none).
+
+```{r companion, fig.cap = "Largest companion-matrix eigenvalue modulus per kept draw (orange line: 1)."}
+img("companion")
+```
+
+**Derived quantities by chain.** The diagnostics above concern the hyperparameters; results come from the coefficient draws. Two quantities the engine uses are compared across chains: the largest companion modulus and `r s$derived$variable` growth over `r s$derived$horizon` quarters from `r meta$data$origin_last_quarter` on the no-shock forecast path (the forecast mean given each draw; log points, about percent). R-hat over chains: `r paste(names(s$derived$rhat), signif(s$derived$rhat, 4), sep = " ", collapse = "; ")`.
+
+```{r derived-table}
+d <- s$derived$by_chain
+tab(d, digits = 4)
+```
+
+```{r derived, fig.cap = "Growth over the horizon on the no-shock path, kept draws of each chain."}
+img("derived")
+```
+
+# 6. Timings
+
+Mode search `r round(meta$timings_seconds$mode / 60, 1)` min; Hessian `r round(meta$timings_seconds$proposal / 60, 1)` min; chains `r paste(round(unlist(meta$timings_seconds$chains) / 60, 1), collapse = ", ")` min (run in parallel); coefficient draws `r round(meta$timings_seconds$coefficients / 60, 1)` min. Code version: commit `r meta$code$commit`, uncommitted changes in tracked files: `r meta$code$uncommitted_changes`.

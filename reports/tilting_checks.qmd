@@ -1,0 +1,118 @@
+---
+title: "Entropic tilting"
+format:
+  html:
+    embed-resources: true
+    toc: true
+    df-print: kable
+params:
+  output_dir: "outputs/checks_tilting"
+execute:
+  echo: false
+  warning: false
+---
+
+```{r setup}
+# Reads the results saved by scripts/check_tilting.R; runs no checks itself.
+r   <- readRDS(file.path(params$output_dir, "tilting_checks.rds"))
+tab <- function(df, digits = 3) knitr::kable(df, digits = digits, row.names = FALSE)
+pct <- function(x) sprintf("%.1f%%", 100 * x)
+m_names <- names(r$methods)
+```
+
+```{r quick, results = "asis"}
+if (isTRUE(r$run$quick)) cat("> **Quick run** (100 draws per run, to test the script). The numbers below are not the full check.\n\n")
+```
+
+**Runs:** `r paste(sapply(r$methods, function(x) paste0("\x60", x$run_id, "\x60 (", x$n_draws, " draws)")), collapse = ", ")`. Forecasts start after `r r$methods[[1]]$last_observed`. Gaussian conditioning, engine seed `r r$run$seed`, `r r$run$paths_per_draw` paths per posterior draw for tilted scenarios, solver tolerance `r r$run$tilting$tol`. Run time `r round(r$run$seconds / 60, 1)` minutes.
+
+**What tilting does.** A soft condition is a target for a feature of the forecast distribution, for example "the median of 4-quarter PCE inflation 12 quarters ahead is 2%". Entropic tilting (Crump et al. 2021, Section 4.2, eqs. 14–16) keeps every forecast path and changes only its weight: among all weights that meet the targets, it takes those closest to equal weights in Kullback–Leibler divergence. The properties that must hold exactly (targets met, weights positive and summing to one, equal weights when nothing has to change, the closed form for a Gaussian sample, minimal divergence, infeasible targets rejected, hard cells untouched) are checked in `tests/testthat/test-tilting.R` and `test-engine-run.R`. This report applies the method to the model's own draws.
+
+**How to read the weights.** The effective sample size (ESS) 1/Σw² says how many equally weighted paths the tilted sample is worth. For a single **median** target the weights take only two values: the share p of paths at or below the target value gets 0.5/(pJ) each, the rest 0.5/((1−p)J) each. The ESS share is then exactly 4p(1−p). It depends on how far the target lies in the untilted distribution, not on the number of paths.
+
+# 1. The inflation anchor (the paper's Figure 16b)
+
+Scenario `anchor_pce_2pct`: the median of 4-quarter headline PCE inflation (exact percent change) in `r r$methods[[1]]$anchor$check$quarter[1]`, 12 quarters ahead, tilted to 2.0%. Nothing is fixed exactly. The paper's Figure 16a (inflation fixed at exactly 2% from 12 to 20 quarters ahead) is not reproduced: fixing a growth rate is a condition on a linear combination of cells, which the scenario files do not support.
+
+```{r anchor-table}
+tab(do.call(rbind, lapply(m_names, function(m) {
+  a <- r$methods[[m]]$anchor
+  data.frame(run = m, target = a$check$target, untilted_median = a$check$untilted_median,
+             share_below_target = a$check$untilted, a$concentration[c("paths", "ess", "ess_share")],
+             largest_weight_x_J = a$concentration$max_weight_x_J,
+             draws_carrying_half = a$concentration$draws_for_half, newton_steps = a$iterations)
+})))
+```
+
+*share_below_target: the untilted share of paths at or below 2.0% (p above). draws_carrying_half: the smallest share of posterior draws whose paths carry half the tilted weight (0.5 with equal weights).*
+
+```{r anchor-figs, results = "asis"}
+for (m in m_names) {
+  cat("\n**", m, "**: grey, untilted; blue, tilted. Panels: headline PCE inflation (the target), core PCE inflation and real GDP growth (4-quarter percent changes), the unemployment rate and the 2- and 10-year yields (levels, percent). Fans start at the last observation.\n\n", sep = "")
+  cat("![](", file.path(params$output_dir, paste0("anchor_", m, ".png")), ")\n\n", sep = "")
+}
+```
+
+**Width of the bands over the horizon.** The paper's point against hard conditioning is that fixing inflation at 12–20 quarters ahead makes the interquartile range 11 quarters ahead narrower than 6 quarters ahead. With tilting the bands should keep their shape. Interquartile range of headline PCE inflation:
+
+```{r anchor-iqr}
+tab(do.call(rbind, lapply(m_names, function(m) {
+  f <- r$methods[[m]]$anchor$fans$pce
+  iqr <- function(q, h) q[h, 5] - q[h, 3]
+  data.frame(run = m, untilted_h6 = iqr(f$untilted, 6), untilted_h11 = iqr(f$untilted, 11),
+             untilted_h12 = iqr(f$untilted, 12), tilted_h6 = iqr(f$tilted, 6),
+             tilted_h11 = iqr(f$tilted, 11), tilted_h12 = iqr(f$tilted, 12))
+})))
+```
+
+**What the anchor implies for other variables** in the target quarter (medians; q16–q84 is the width of the 68% band). Tilting reweights whole paths, so every variable moves with inflation through the paths' joint distribution. These are conditional statements, not causal effects.
+
+```{r anchor-others}
+tab(do.call(rbind, lapply(m_names, function(m) data.frame(run = m, r$methods[[m]]$anchor$at[, -4]))))
+```
+
+# 2. Paths per posterior draw
+
+The same anchor with 1, 10 and 20 paths per draw (J = draws × paths). Tilted quantiles in the target quarter.
+
+```{r sens}
+tab(do.call(rbind, lapply(m_names, function(m) {
+  s <- r$methods[[m]]$sens
+  data.frame(run = m, s[, c("paths_per_draw", "paths", "ess", "ess_share", "draws_for_half", "iterations",
+                            "untilted_median", "tilted_median", "tilted_q16", "tilted_q84", "seconds")])
+})))
+```
+
+The tilted median is the weighted type-7 quantile (Akinshin 2023), which interpolates between neighbouring paths. The tilting itself puts exactly half the weight at or below 2.0%, but with few paths the interpolated median can differ from 2.0 by the spacing between paths near it; with more paths the two agree.
+
+# 3. Hard and soft together
+
+`gs_inflation_oil_2026` with its oil prices hard (exact, as in the shipped file) and its core PCE and core CPI columns soft: medians of their 4-quarter inflation rates (`r paste(sprintf("%s %s %.2f%%", r$methods[[1]]$mixed$check$variable, r$methods[[1]]$mixed$check$quarter, r$methods[[1]]$mixed$check$target), collapse = "; ")`), recovered from the file's levels. Hard cells are imposed first by conditioning; the paths are then tilted. The shipped scenario keeps every column hard.
+
+```{r mixed-table}
+tab(do.call(rbind, lapply(m_names, function(m) {
+  x <- r$methods[[m]]$mixed
+  data.frame(run = m, x$check[, c("variable", "quarter", "target", "untilted_median", "achieved")],
+             ess_share = x$concentration$ess_share, hard_cells_max_error = x$fixed_max_error)
+})))
+```
+
+*achieved: the weighted share at or below the target (0.5 when met). untilted_median: the median with oil fixed and no tilting.*
+
+```{r mixed-figs, results = "asis"}
+for (m in m_names) {
+  cat("\n**", m, "**: grey, oil fixed only; blue, oil fixed and core inflation tilted. Black dots: the fixed oil prices; orange: the soft targets.\n\n", sep = "")
+  cat("![](", file.path(params$output_dir, paste0("mixed_", m, ".png")), ")\n\n", sep = "")
+}
+```
+
+```{r mixed-others}
+tab(do.call(rbind, lapply(m_names, function(m) data.frame(run = m, r$methods[[m]]$mixed$at[, -4]))))
+```
+
+# Notes
+
+- Quantities are exact percent changes: yoy = 100 (x_t / x_{t−4} − 1) with x = exp(y / 100). The paper does not say whether its 2% is an exact rate or a log difference; 2% exact is 1.98 log points.
+- Medians are tilted with the indicator moment of the paper (g = 1[s ≤ x], ḡ = 0.5). The weights then jump at the target value, which is correct for the method but makes the tilted distribution less smooth than with a mean target.
+- The target applies to one quarter. The tilted median meets it there exactly, and neighbouring quarters move with it only as far as they are correlated with it along each path, so the tilted median line bends at the target quarter. A smoother anchor would need targets in several quarters.
+- A target outside the range of the draws cannot be reached by reweighting and is an error, not an approximation.

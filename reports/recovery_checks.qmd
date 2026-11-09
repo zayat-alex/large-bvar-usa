@@ -1,0 +1,102 @@
+---
+title: "Simulation recovery"
+format:
+  html:
+    embed-resources: true
+    toc: true
+    df-print: kable
+params:
+  output_dir: "outputs/checks_recovery"
+execute:
+  echo: false
+  warning: false
+---
+
+```{r setup}
+# Reads the results saved by scripts/check_recovery.R; runs no checks itself.
+r   <- readRDS(file.path(params$output_dir, "recovery_checks.rds"))
+tab <- function(df, digits = 3) knitr::kable(df, digits = digits, row.names = FALSE)
+se  <- function(p) sqrt(p * (1 - p) / r$run$n_ok)
+pct <- function(x) sprintf("%.1f%%", 100 * x)
+```
+
+```{r quick, results = "asis"}
+if (isTRUE(r$run$quick)) cat("> **Quick run** (a few replications, to test the script). The numbers below are not the full check.\n\n")
+```
+
+**Model:** `r length(r$run$variables)` variables (`r paste(r$run$variables, collapse = ", ")`), `r r$run$lags` lags, the prior of `config/run.yml`. **Replications:** `r r$run$n_ok` of `r r$run$n_reps` fitted. Each sample has `r r$run$n_sample` quarters, as many as the data (`r r$run$sample`). **Chains:** `r r$run$mcmc$n_draw` iterations, `r r$run$mcmc$n_burn` burn-in, thinning `r r$run$mcmc$n_thin`, so `r (r$run$mcmc$n_draw - r$run$mcmc$n_burn) / r$run$mcmc$n_thin` draws per fit. Seeds derived from `r r$run$seed`. Run time `r round(r$run$seconds / 60, 1)` minutes on `r r$run$n_workers` R processes.
+
+**What is checked.** The estimator, the forecast simulator and the impulse responses are each checked against exact results in other reports. Here the whole chain runs together where the right answer is known:
+
+1. The **true model** is a fixed VAR: the posterior mean of B and Σ of this small model estimated on the data (full sample). Its largest companion root is `r signif(r$truth$max_root, 6)`: stable, but close to a unit root, like the data.
+2. Each replication **simulates** `r r$run$n_sample` + `r r$run$horizon` quarters from the true model, starting from the data's first `r r$run$lags` quarters. The first `r r$run$n_sample` quarters are the sample, and the last `r r$run$horizon` are the true future.
+3. The model is **estimated** on the sample.
+4. **Coverage**: how often the 68% and 90% posterior bands (16–84 and 5–95 percent quantiles) contain the truth. This is checked for forecasts 1 to `r r$run$horizon` quarters ahead (the predictive density, with shocks, against the simulated future), for the recursive gs2 impulse response (against the true model's response; ordering `r paste(r$run$recursive$slow, collapse = ", ")` | `r r$run$recursive$policy` | `r paste(r$run$recursive$fast, collapse = ", ")`), and for the coefficients and Σ.
+
+**How to read it.** These are Bayesian credible bands, not confidence intervals: over repeated samples from one fixed model they need not contain the truth at exactly their nominal rate. For forecasts, coverage should be close to nominal when the model is right. For coefficients, the prior shrinks the lags of other variables towards zero, so some undercoverage is expected there. With `r r$run$n_ok` replications, one coverage rate has a binomial standard error of `r pct(se(0.68))` at 68% and `r pct(se(0.90))` at 90%. Cells within one replication are correlated, so the figures are read by eye, without a pass/fail threshold.
+
+# 1. Forecasts
+
+```{r fc-summary}
+fc68 <- r$forecast$c68; fc90 <- r$forecast$c90
+tab(data.frame(band = c("68%", "90%"), nominal = c(0.68, 0.90),
+               all_cells = c(mean(fc68), mean(fc90)),
+               lowest_cell = c(min(fc68), min(fc90)), highest_cell = c(max(fc68), max(fc90))))
+```
+
+Coverage per variable and horizon (share of replications whose band contains the realized value):
+
+```{r fc-table}
+tab(data.frame(horizon = rownames(fc90), round(fc90, 2), check.names = FALSE), 2)
+```
+
+*90% band, above; 68% band, below.*
+
+```{r fc-table-68}
+tab(data.frame(horizon = rownames(fc68), round(fc68, 2), check.names = FALSE), 2)
+```
+
+![Forecast coverage by horizon; shaded: nominal rate ± 2 binomial standard errors.](`r file.path(params$output_dir, "recovery_forecast_coverage.png")`)
+
+One replication's forecast against its true future (dashed); median, 68% and 90% bands:
+
+![Forecast fan of replication `r r$example$rep`.](`r file.path(params$output_dir, "recovery_example_fan.png")`)
+
+# 2. Impulse responses
+
+Recursive gs2 shock, unit impact, responses at horizons 0 to `r r$run$irf_horizon`. Impact responses of the slow variables are zero by construction in both the truth and the estimates, so their coverage at h = 0 is 1 by definition. The summary uses horizons 1 and later.
+
+```{r irf-summary}
+i68 <- r$irf$c68[-1, , drop = FALSE]; i90 <- r$irf$c90[-1, , drop = FALSE]
+tab(data.frame(variable = colnames(i90), cover68 = colMeans(i68), cover90 = colMeans(i90),
+               lowest90 = apply(i90, 2, min)))
+```
+
+![Impulse response coverage by horizon.](`r file.path(params$output_dir, "recovery_irf_coverage.png")`)
+
+# 3. Coefficients and Σ
+
+Coverage by group of parameters. The bias is the posterior mean minus the truth, averaged over cells and replications. The RMSE is that of the posterior mean. Mean |truth| gives the scale of each group.
+
+```{r params}
+tab(r$parameters)
+```
+
+# 4. Replications
+
+```{r reps}
+pr <- r$per_rep
+tab(data.frame(statistic = c("seconds per fit", "acceptance rate", "median lambda", "largest root of the posterior mean"),
+               min = c(min(pr$seconds), min(pr$acceptance), min(pr$lambda_median), min(pr$max_root_mean)),
+               median = c(median(pr$seconds), median(pr$acceptance), median(pr$lambda_median), median(pr$max_root_mean)),
+               max = c(max(pr$seconds), max(pr$acceptance), max(pr$lambda_median), max(pr$max_root_mean))))
+```
+
+```{r failures, results = "asis"}
+if (length(r$failures) == 0) {
+  cat("Every replication was fitted.\n")
+} else {
+  cat("Failed fits (counted, not dropped silently):\n\n")
+  for (f in r$failures) cat("- replication ", f$rep, ": ", f$error, "\n", sep = "")
+}
+```

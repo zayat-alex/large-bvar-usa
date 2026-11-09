@@ -1,0 +1,104 @@
+---
+title: "Forecast checks"
+format:
+  html:
+    embed-resources: true
+    toc: true
+    df-print: kable
+params:
+  output_dir: "outputs/checks_forecast"
+execute:
+  echo: false
+  warning: false
+---
+
+```{r setup}
+# Reads the results saved by scripts/check_forecast.R; runs no checks itself.
+r   <- readRDS(file.path(params$output_dir, "forecast_checks.rds"))
+img <- function(name) knitr::include_graphics(file.path(params$output_dir, paste0(name, ".png")))
+tab <- function(df, digits = 3) knitr::kable(df, digits = digits, row.names = FALSE)
+verdict <- function(ok) if (isTRUE(ok)) "**PASS**" else "**FLAG**"
+```
+
+**Model:** 31 variables, `r r$run$lags` lags, forecast horizon `r r$run$horizon` quarters (40 in section 5). **Draws:** for each COVID method, `r r$run$n_draws` draws of (Σ, B) from their posterior given the hyperparameters at the posterior mode (`outputs/checks_full_size/`). Hyperparameter uncertainty is not included, so bands are somewhat narrower than they will be with the full posterior. BVAR `r r$run$bvar_version`. Seeds derived from `r r$run$seed`.
+
+**Forecasts** (`R/forecast.R`, `forecast_unconditional()`): for each draw of (B, Σ), starting from the last 5 observed quarters, the VAR is iterated forward with a shock L·u added each quarter (L L' = Σ, u standard normal). Each shock enters the next quarter's lags, so uncertainty accumulates with the horizon. The paths across draws are a sample from the predictive density (Crump et al. 2021, Section 2.3).
+
+# 1. Simulator against exact moments
+
+A VAR(2) with two variables and known coefficients. The exact forecast mean follows the recursion with zero shocks; the exact forecast error covariance at horizon h is Σᵢ₌₀^{h−1} Ψᵢ Σ Ψᵢ', with Ψᵢ the leading block of Fⁱ (F the companion matrix). 20,000 simulated paths. **Criteria:** |z| of every mean below 4; every variance ratio within 1 ± 4 Monte Carlo standard errors.
+
+```{r}
+k <- r$known$table
+tab(k[, c("horizon", "variable", "mean_exact", "mean_sim", "z_mean", "sd_exact", "sd_sim", "var_ratio")], 3)
+okK <- max(abs(k$z_mean)) < 4 && all(abs(k$var_ratio - 1) < 4 * k$var_ratio_mc_se)
+```
+
+Verdict: `r verdict(okK)`. The same check is a unit test (`tests/testthat/test-forecast.R`), together with the recursion itself, the use of only the last 5 rows of the history, and the agreement of the no-shock path with BVAR's own mean-path function.
+
+# 2. BVAR::predict() with the same draws
+
+The project's draws were passed to `BVAR::predict()` (method `none`, history to `r r$longrun$origin`). BVAR 1.0.5 computes each draw's no-shock path and then adds, to each quarter separately, a noise vector Σ'u (the covariance matrix in place of its Cholesky factor; BVAR GitHub issue #86). The noise therefore has covariance Σ² (not Σ) and is not carried through the dynamics.
+
+```{r}
+tab(r$predict$spread, 3)
+```
+
+Means agree up to simulation noise. The spreads do not. The noise BVAR adds, measured as its draws minus each draw's no-shock path:
+
+```{r}
+tab(r$predict$noise, 3)
+```
+
+Its standard deviation matches √diag(Σ²) (averaged over draws) and is the same at 1 and 20 quarters, as the source implies. The project's one-quarter shock standard deviation is √diag(Σ). For the variables shown, BVAR's bands are several times too wide at short horizons (5.6 times for real GDP at one quarter, 7.5 times for realized volatility), and at long horizons can be too narrow (core PCE prices at 20 quarters: 0.67 times), because they do not widen with the horizon. **Conclusion:** the project's simulator is used for unconditional forecasts; BVAR's mean path serves as a cross-check.
+
+# 3. Forecasting from another history
+
+- `predict()` with `newdata` equal to the stored data gives identical draws (same seed): **`r r$history$newdata_identical`**.
+- Method `precovid_params`: coefficients estimated on 1973Q1–`r r$history$labels[1]`, forecasts started from the latest data (`r r$history$labels[2]`). The one-quarter-ahead forecast starts from the latest observations, not from the end of the estimation sample, and BVAR with `newdata` gives the same mean paths as the project's simulator:
+
+```{r}
+tab(r$history$precovid, 3)
+```
+
+Largest |mean of BVAR's added noise| / its s.d. over all horizons and variables: `r round(r$history$precovid_noise_mean_max, 3)` (with 500 draws the standard error of each ratio is 1/√500 ≈ 0.045, and the largest of the 620 horizon-variable cells is expected near 0.14 by chance alone), so BVAR's `newdata` forecasts are the project's no-shock paths plus noise.
+
+# 4. Cost of conditional forecasts (BVAR)
+
+A scenario fixes some variables for some quarters (here the first draw's no-shock path + 1, so the conditions can be met). BVAR first computes Cholesky impulse responses for every draw (`irf()`; done once and reusable across scenarios), then for each draw builds the restriction matrix (one row per fixed cell, 31 × 20 = 620 columns) and solves it by singular value decomposition (Waggoner and Zha 1999). Timed on 50 draws.
+
+```{r}
+cd <- do.call(rbind, lapply(names(r$cond), function(nm) {
+  x <- r$cond[[nm]]
+  data.frame(scenario = nm, fixed_cells = x$restrictions, draws = x$draws,
+             irf_seconds = x$seconds_irf, scenario_seconds = x$seconds_conditional,
+             ms_per_draw_irf = 1000 * x$seconds_irf / x$draws,
+             ms_per_draw_scenario = 1000 * x$seconds_conditional / x$draws,
+             max_abs_error_fixed_cells = x$conditioned_cells_match)
+}))
+tab(cd, 3)
+```
+
+Light: gs2, wti, sp500 fixed for 8 quarters. Heavy: 10 variables fixed for all 20 quarters. Fixed cells are met to rounding. At 1,000 draws, the impulse responses take about `r round(1000 * r$cond$light$seconds_irf / r$cond$light$draws / 60, 1)` minutes once, and each scenario `r round(r$cond$light$seconds_conditional / r$cond$light$draws * 1000)` to `r round(r$cond$heavy$seconds_conditional / r$cond$heavy$draws * 1000)` seconds.
+
+**Package issue found:** BVAR 1.0.5 finds conditioned variables by name with `grep()` (partial matching), so a condition on `pce` also matches `rpce` and `corepce`. The checks pass variables by column position, which BVAR handles exactly; any use of BVAR's conditional forecasts must do the same.
+
+# 5. First look at long-horizon forecasts (preliminary)
+
+Not a result: draws at the mode, no hyperparameter uncertainty, no review. Shown because every draw of the model has a largest companion eigenvalue slightly above 1 (full-size checks report), and long horizons are where that would show. 40 quarters from `r r$longrun$origin`, 500 paths per method. Growth rates are 4 × the quarterly change in 100·ln (log approximation, percent annualized). Bands: 68% (dark) and 90% (light).
+
+```{r}
+#| fig-cap: "Method none (estimated on 1973Q1–2026Q2). Black: last 40 quarters of data."
+img("longrun_none")
+```
+
+```{r}
+#| fig-cap: "Method precovid_params (estimated on 1973Q1–2019Q4, started from the latest data). Black: last 40 quarters of data."
+img("longrun_precovid_params")
+```
+
+```{r}
+tab(r$longrun$table, 2)
+```
+
+**Reading.** Real GDP growth (median about 1.7–2.2%), the unemployment rate (about 5%) and realized volatility settle at plausible values, and no median path explodes over 40 quarters. Treasury yields do not settle: their medians keep falling, by about 0.2 pp a year for the 2-year yield under both methods and up to 0.3 pp a year for the 10-year yield under `precovid_params`, close to the linear trends of the yields in the estimation samples (1973–2026: −0.18 and −0.17 pp a year; 1981–2019: −0.29 and −0.27). Under `precovid_params`, core PCE inflation falls to about 0% within five years and stays there. A plausible reading, not yet verified, is that a VAR in levels with intercepts and roots at 1 treats the long decline in rates and inflation since the early 1980s as a trend and extrapolates it. To be examined in the forecast reasonableness checks before any long-horizon forecast is shown.

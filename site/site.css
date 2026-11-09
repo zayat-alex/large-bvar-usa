@@ -1,0 +1,9 @@
+/* site.css: what the static site needs beyond the app's stylesheets
+   (vendor/shiny/shiny-sass.css and vendor/app.css, a copy of
+   app/www/app.css). */
+
+/* Only the current tab is shown. */
+.page-panel[hidden] { display: none !important; }
+
+/* Each chart's drawing area, as plotlyOutput(height = "250px"). */
+.chart-plot { width: 100%; height: 250px; }

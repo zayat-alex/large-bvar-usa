@@ -1,0 +1,162 @@
+# Run configuration for the BVAR USA pipeline.
+#
+# Every result is reproducible from this file, a seed and the immutable raw files in data/raw/.
+# Values not yet chosen are null; code must fail loudly if it needs one of
+# them while it is still null.
+
+# ---- Data (docs/data.md, sections 1 and 2) ----
+data:
+  raw_dir: data/raw                          # immutable raw files; sources and dates in data/raw/SOURCE.md
+  qd_vintage_file: fred_qd_vintages/FRED-QD_2026m09.csv   # latest stored vintage; last quarter 2026Q2
+  api_realtime_date: 2026-09-30              # ALFRED as-of date matching the QD vintage (docs/data.md, section 1); confirmed: GDPC1 and PCEPILFE match QD 2026m09 from this date on
+  worldbank_file: worldbank/CMO-Historical-Data-Monthly_release-2026-10-02_retrieved-2026-10-19.xlsx   # row 30; October 2026 release, treated as unrevised (docs/data.md 3.3)
+  yahoo_file: yahoo/GSPC_daily_2026-10-19.csv  # row 31; daily ^GSPC closes
+  yahoo_complete_through: 2026-10-18        # daily data complete up to this date (day before download); quarters ending later are dropped
+  # ALFRED vintage-history files, by series ID (model inputs and validation checks)
+  alfred_files:
+    B823RA3Q086SBEA: alfred/B823RA3Q086SBEA_vintages_2018-05-01_to_2026-10-19.csv
+    HCOMPBS:    alfred/HCOMPBS_vintages_2018-05-01_to_2026-10-17.csv
+    GS2:        alfred/GS2_vintages_2018-05-01_to_2026-10-17.csv
+    FGCEC1:     alfred/FGCEC1_vintages_2018-05-01_to_2026-10-17.csv
+    GDPC1:      alfred/GDPC1_vintages_2018-05-01_to_2026-10-17.csv
+    PCEPILFE:   alfred/PCEPILFE_vintages_2018-05-01_to_2026-10-17.csv
+    GS10:       alfred/GS10_vintages_2018-05-01_to_2026-10-17.csv
+    WTISPLC:    alfred/WTISPLC_vintages_2018-05-01_to_2026-10-19.csv
+  alfred_metadata_files:
+    - alfred/fred_metadata_2026-10-17.csv
+    - alfred/fred_metadata_B823RA3Q086SBEA_2026-10-19.csv
+    - alfred/fred_metadata_WTISPLC_2026-10-19.csv
+  # Backfills (docs/data.md 3.6): quarters before a series' first observation are
+  # filled from a substitute measuring the same quantity, used without adjustment.
+  backfill:
+    gs2:
+      source: gsw
+      file: gsw/feds200628_2026-10-20.csv
+      column: SVENPY02                   # GSW 2-year par yield, % (coupon-equivalent)
+      complete_through: 2026-10-09       # last day in the file
+  # Reference files used only by validation checks
+  qd_twexmmth_file: fred_qd_vintages/FRED-QD_2020m03.csv   # last vintage with TWEXMMTH (dollar check, docs/data.md 3.1)
+  worldbank_previous_file: worldbank/CMO-Historical-Data-Monthly_2026-10-19.xlsx   # January 2026 release (release comparison)
+  output_dir: outputs/data_2026m09                          # data tables, checks and reports for this vintage
+
+# ---- Sample ----
+sample:
+  start: 1973Q1
+  end: latest                                # last quarter in which all 31 series are available
+
+# ---- Model ----
+model:
+  lags: 5                                    # VAR(5), as in Crump et al. (2021)
+
+# ---- Prior (Crump et al. 2021, Section 2.2; Giannone, Lenza and Primiceri 2015, Section 3) ----
+# Normal-inverse-Wishart prior: Minnesota prior plus sum-of-coefficients prior.
+# lambda, mu (soc) and psi are estimated (hierarchical); alpha is fixed.
+# Gamma hyperpriors are given by mode and standard deviation; min and max bound
+# the hyperparameter search. The psi settings below are the ones compared in
+# reports/prior_checks.qmd.
+prior:
+  lambda: {mode: 0.2, sd: 0.4, min: 0.0001, max: 5}   # overall tightness
+  alpha: 2                                   # lag decay: prior variance shrinks as 1/s^alpha
+  soc: {mode: 1, sd: 1, min: 0.0001, max: 50}          # sum-of-coefficients tightness (mu)
+  soc_ybar: presample                        # mean used in the soc dummies: presample (first p rows, as in Giannone, Lenza and Primiceri 2015) or estimation_sample (first p rows after the initial lags)
+  constant_var: 1.0e+7                       # prior variance factor of the intercept (diffuse)
+  psi:
+    shape: 0.0004                            # inverse-gamma hyperprior on psi_j
+    scale: 0.0004
+    start: ar_variance                       # ar_variance (OLS AR(p) residual variance) or ar_sd_auto (package default: AR(p) residual standard deviation)
+    bound_factor: 100                        # search bounds: start / factor to start * factor
+
+# ---- COVID treatment ----
+# Every method listed is estimated as a separate run (its own run_id and
+# output folder), so the models can be compared.
+covid:
+  methods: [none, precovid_params, exclude_window]   # implemented: none, precovid_params, exclude_window
+  window: [2020Q1, 2021Q4]                   # exclude_window: first and last quarter whose equations are left out
+  cutoff: 2019Q4                             # last estimation quarter for precovid_params
+
+# ---- Estimation: mode search and MCMC (Giannone, Lenza and Primiceri 2015, Appendix B) ----
+# profile selects the chain lengths: smoke is a short run that checks the
+# pipeline end to end (its draws are not for use); pilot is a medium run that
+# measures how fast the chains mix, to size the full run; full is the
+# production run. The pipeline stops if a value it needs is null.
+# Seeds: chain k uses seed + k, its starting point seed + 2000 + k; the
+# coefficient draws use seed + 1000.
+mcmc:
+  profile: full
+  seed: 20261016                             # fixed seed for reproducibility
+  n_cores: 4                                 # R processes for the chains (results do not depend on it)
+  mode_search: {start_factors: [1, 0.5, 2], maxit: 2000}   # starts = configured start values x each factor
+  # Chain starts: mode, or overdispersed = mode + scale x (approximate posterior
+  # s.d.) in a random direction, so that R-hat (Gelman and Rubin 1992) tests
+  # whether chains that started apart have come to agree.
+  chain_start: {type: overdispersed, scale: 2}
+  tuning:                                    # proposal scale c, tuned during the burn-in, then fixed
+    target: [0.20, 0.35]                     # acceptance band: c x 0.8 below, x 1.25 above
+    adapt_share: 0.5                         # share of the burn-in during which c is tuned
+    window: 100                              # iterations per tuning window
+  # Convergence targets used to judge a run (they do not change its draws):
+  # for every hyperparameter and the log posterior, ESS summed over chains
+  # at least ess_min and R-hat (point estimate) below rhat_max.
+  convergence: {ess_min: 1000, rhat_max: 1.05}
+  profiles:
+    smoke: {n_draw: 600, n_burn: 200, n_thin: 1, n_chains: 2, n_engine_draws: 100}
+    pilot: {n_draw: 12000, n_burn: 2000, n_thin: 1, n_chains: 4, n_engine_draws: 1000}
+    # full: sized from the pilot (slowest ESS rate 8.4 per 1,000 iterations per
+    # chain): 4 x 40,000 retained iterations for ESS >= 1,000 with a 30 percent
+    # margin; the chains reach the posterior within about 500 iterations.
+    full:  {n_draw: 42000, n_burn: 2000, n_thin: 10, n_chains: 4, n_engine_draws: 1000}
+
+# ---- Forecasts, scenarios, IRFs ----
+# The engine (scripts/run_engine.R) reads each run's saved draws and writes
+# to <output_root>/<run_id>/engine/. These settings are not part of the
+# run_id, since they do not change the estimation; engine/meta.json records them.
+forecast:
+  horizon: 20                                # quarters
+  conditional_method: gaussian               # gaussian (direct conditioning) or kalman (simulation smoother); same paths for the same seed
+  seed_offset: 3000                          # engine seed = mcmc$seed + seed_offset, shared by the baseline and every scenario
+  paths_per_draw: 10                         # simulated paths per posterior draw (baseline and hard scenarios; one path gave medians that moved by up to 0.3 pp with the seed)
+  # Soft conditions (entropic tilting, Crump et al. 2021, Section 4.2): the
+  # paths of a scenario with soft targets are reweighted to meet them.
+  tilting:
+    paths_per_draw: 10                       # paths per posterior draw for scenarios with soft targets (J = draws x 10)
+    tol: 1.0e-10                             # largest acceptable miss of a target by the weighted moments
+    maxit: 100                               # Newton steps of the weight solver
+    ess_warn_share: 0.10                     # warn when the effective sample size is below this share of J
+# Impulse responses (Crump et al. 2021, Sections 2.3 and 3.1-3.2): unit
+# shocks (1 log point for log series, 1 percentage point for rates) in the
+# first forecast quarter; responses at horizons 0 (impact) to `horizon`.
+irf:
+  horizon: 40                                # quarters after impact
+  # Generalized IRFs (shocked variable ordered first): the paper's examples
+  # (rgdp, Figure 6; gs2, Figure 8) and oil, stocks and the Baa yield.
+  girf_shocks: [rgdp, gs2, wti, sp500, baa]
+  # Recursive shock to the policy variable, Cholesky ordering (slow, policy,
+  # fast): slow variables do not move on impact. The blocks follow the order
+  # of Table 1 in the paper, economic variables before financial ones.
+  recursive:
+    slow: [rgdp, rpce, rresinv, rnresinv, rexp, rimp, rgov, rfedgov, gdpdefl, pce, corepce, cpi, corecpi,
+           comphr, payems, urate, indpro, caputil, houst, rdpi, umich]
+    policy: gs2
+    fast: [gs5, gs10, aaa, baa, usd, sp500, wti, gsci_nonenergy, rvol]
+quantiles: [0.05, 0.16, 0.25, 0.50, 0.75, 0.84, 0.95]   # supports 68% and 90% bands
+scenarios: [jpm_midyear_2026, gs_inflation_oil_2026, anchor_pce_2pct, spf_2026q3_2028, oil_rises, oil_normalizes]   # scenario ids from scenarios/scenarios.yml
+
+# ---- Export (stage 5): the bundle the website reads (R/export.R) ----
+# Quantile tables of one run, written to <output_root>/<run_id>/bundle/:
+# the baseline and every scenario in `scenarios`.
+# Display transforms are applied to every path (or draw) before the
+# quantiles are taken. Not part of the run_id.
+export:
+  run: exclude_window                        # COVID method of the published run
+  horizon: 12                                # forecast quarters exported (of forecast$horizon)
+  # Log series the app shows in natural units whatever the growth setting:
+  # prices and quantities usually read as levels (rates, indices kept raw
+  # and spreads are always shown in levels).
+  shown_in_levels: [wti, sp500, usd, gsci_nonenergy, houst]
+  spreads:                                   # a minus b, percentage points, formed path by path
+    - {id: term_10y_2y, of: [gs10, gs2], label: "10-year minus 2-year Treasury yield"}
+    - {id: baa_aaa, of: [baa, aaa], label: "Baa minus Aaa corporate yield"}
+    - {id: baa_10y, of: [baa, gs10], label: "Baa corporate yield minus 10-year Treasury yield"}
+
+# ---- Outputs of the estimation runs ----
+output_root: outputs                         # each run writes to <output_root>/<run_id>/

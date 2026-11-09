@@ -1,0 +1,103 @@
+# Scenario index. One entry per scenario: id (the file scenarios/<id>.csv),
+# label, description and optionally short_label (the name in the website's
+# scenario list). The description is shown to readers of the website (its
+# Settings tab and the scenario list); the sources and mappings behind each
+# scenario are recorded in the comments above its entry.
+#
+# A scenario fixes the listed variables in the listed quarters; the model
+# fills in everything else (a conditional forecast). An entry may also mark
+# columns as soft with `soft`: their values are then targets for the
+# forecast distribution, imposed by entropic tilting (reweighting the
+# forecast paths; Crump et al. 2021, Section 4.2), not fixed values. Each
+# soft variable has a measure (the form of its values: level in model
+# units, yoy or qoq_ann percent change, or annual_avg, the growth of the
+# four-quarter average over the previous four, which in a Q4 row is
+# calendar-year average growth) and a statistic (median, the default, or
+# mean):
+#   soft: {pce: yoy}   or   soft: {pce: {measure: yoy, statistic: mean}}
+#
+# All quarters assume data ending in 2026Q2.
+
+scenarios:
+  # Headline numbers from J.P. Morgan's 2026 midyear economic outlook
+  # (9 July 2026), mapped roughly to the model's quarterly variables by
+  # scripts/build_example_scenarios.R, which records each number and mapping.
+  # An illustration of the scenario engine, not the bank's forecast.
+  - id: jpm_midyear_2026
+    short_label: "J.P. Morgan midyear"
+    label: "Slower growth, sticky core inflation, higher yields (after J.P. Morgan, July 2026)"
+    description: >
+      Conditional forecast. Fixes, roughly as in J.P. Morgan's 2026 midyear
+      outlook (9 July 2026): real GDP growth of 1.75% and core PCE inflation
+      of 3.4% in 2026 (fourth quarter over fourth quarter), and 2-year and
+      10-year Treasury yields of 4.2% and 4.7% in 2026Q4. Everything else is
+      left to the model. An illustration of scenarios, not the bank's
+      forecast.
+  # Headline numbers from Goldman Sachs research as reported on 27 June 2026,
+  # mapped by scripts/build_example_scenarios.R. The source does not say
+  # whether its oil price is Brent or WTI; it is applied to WTI.
+  - id: gs_inflation_oil_2026
+    short_label: "Goldman Sachs oil"
+    label: "Core inflation eases as oil falls back (after Goldman Sachs, June 2026)"
+    description: >
+      Conditional forecast. Fixes, roughly as in Goldman Sachs research
+      reported on 27 June 2026: core PCE inflation of 3.2% in 2026 and 2.2%
+      in 2027, core CPI inflation of 2.6% and 2.2% (fourth quarter over
+      fourth quarter), and a WTI oil price of $80 a barrel in 2026Q4 and $75
+      in each quarter of 2027. Everything else is left to the model. An
+      illustration of scenarios, not the bank's forecast.
+  # The inflation anchor of Crump et al. (2021), Section 4.2: the median of
+  # 4-quarter PCE inflation 12 quarters ahead (2029Q2 for data ending in
+  # 2026Q2) at 2.0%, measure yoy.
+  - id: anchor_pce_2pct
+    short_label: "PCE anchored at 2%"
+    label: "Inflation anchored at 2% three years ahead (Crump et al. 2021)"
+    description: >
+      Tilted forecast. The unconditional forecast reweighted, as little as
+      possible, so that the median of PCE inflation (four-quarter change)
+      three years ahead, in 2029Q2, is 2%, as in Crump et al. (2021). Nothing
+      is fixed exactly; the model's uncertainty around the anchor is kept.
+    soft:
+      pce: yoy
+  # Survey of Professional Forecasters, 2026Q3 survey (released 14 August
+  # 2026; its panel had data through 2026Q2, as the model does). Targets
+  # written by hand from the survey's median files: headline PCE inflation
+  # 2.1239% (Q4 over Q4, column PCEC; measure yoy in 2028Q4) and real GDP
+  # growth 2.0581% (annual average over annual average, RGDPC / RGDPB - 1 =
+  # 25,398.49 / 24,886.30 - 1; measure annual_avg in 2028Q4). Of the
+  # inflation measures only headline PCE is targeted, as in the paper, to
+  # leave the model as free as possible.
+  - id: spf_2026q3_2028
+    short_label: "SPF-tilted"
+    label: "Baseline tilted to the SPF's 2028 inflation and growth (2026Q3 survey)"
+    description: >
+      Tilted forecast. The unconditional forecast reweighted, as little as
+      possible, so that its 2028 medians match the Survey of Professional
+      Forecasters (2026Q3 survey, released 14 August 2026): PCE inflation of
+      2.12% (fourth quarter over fourth quarter) and real GDP growth of 2.06%
+      (annual average over annual average). Of the inflation measures only
+      PCE is targeted, as in Crump et al. (2021). Nothing is fixed exactly.
+    soft:
+      pce: yoy
+      rgdp: annual_avg
+  # Built by scripts/build_example_scenarios.R: the WTI price from its 2026Q2
+  # average ($95.75, after the spike that began in March 2026) to $110,
+  # halfway in logs (geometric mean) in 2026Q4. Symmetric with oil_normalizes.
+  - id: oil_rises
+    short_label: "Oil - Pessimistic"
+    label: "Oil rises to $110 by early 2027"
+    description: >
+      Conditional forecast. Fixes only the WTI oil price: $95.75 a barrel in
+      2026Q3 (its 2026Q2 average), $102.63 in 2026Q4 and $110 in 2027Q1 and
+      2027Q2. Everything else, including oil after 2027Q2, is left to the
+      model.
+  # Built by scripts/build_example_scenarios.R: the WTI price from its 2026Q2
+  # average to its 2025 average ($65.46), halfway in logs in 2026Q4.
+  - id: oil_normalizes
+    short_label: "Oil - Optimistic"
+    label: "Oil returns to its 2025 level by early 2027"
+    description: >
+      Conditional forecast. Fixes only the WTI oil price: $95.75 a barrel in
+      2026Q3 (its 2026Q2 average), $79.17 in 2026Q4 and $65.46 (its 2025
+      average) in 2027Q1 and 2027Q2. Everything else, including oil after
+      2027Q2, is left to the model.

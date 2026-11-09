@@ -1,0 +1,117 @@
+---
+title: "Estimation diagnostics"
+format:
+  html:
+    embed-resources: true
+    toc: true
+    df-print: kable
+params:
+  output_dir: "outputs/checks_estimation_diagnostics"
+execute:
+  echo: false
+  warning: false
+---
+
+```{r setup}
+# Reads the results saved by scripts/check_estimation_diagnostics.R; runs no checks itself.
+res <- readRDS(file.path(params$output_dir, "estimation_diagnostics.rds"))
+tab <- function(df, digits = 3) knitr::kable(df, digits = digits, row.names = FALSE)
+fig <- function(name) file.path(params$output_dir, name)
+runs <- res$runs
+```
+
+**Runs:** `r paste(sapply(runs, function(r) paste0(r$run_id, " (", r$sample, ")")), collapse = "; ")`. Lag length 5. The COVID methods are described in `docs/methodology.md`: `none` estimates on every quarter; `precovid_params` estimates on data to 2019Q4.
+
+**What is checked.** Each run's MCMC report (`mcmc_diagnostics.html` in the run's folder) already checks the sampler, every hyperparameter against its bounds, λ and µ against their hyperpriors, and the stability of the coefficient draws; section 1 collects its key numbers. Section 2 checks what that report does not: the fit of the VAR, through its one-quarter-ahead residuals e_t = y_t − B′x_t, at the posterior mean of B and Σ (a point estimate describing the fit). Standardized residuals z = e / √Σ_jj have unit variance if the model's Σ describes the residuals.
+
+# 1. From the MCMC reports
+
+```{r mcmc}
+tab(do.call(rbind, lapply(runs, function(r) {
+  h <- r$mcmc$hyper; h <- h[h$hyperparameter != "log_post", ]
+  data.frame(method = r$method, min_ess = min(h$ess), max_rhat = max(h$rhat),
+             multivariate_rhat = r$mcmc$rhat_multivariate, max_share_near_bound = max(h$share_near_bound),
+             lambda_median = h$median[h$hyperparameter == "lambda"],
+             mu_median = h$median[h$hyperparameter == "soc"], sigma_pd = r$mcmc$sigma_pd)
+})), 3)
+```
+
+*ESS summed over 4 chains (target ≥ 1,000); R-hat (target < 1.05); share of draws within 1% of a search bound (largest over the 33 hyperparameters); λ and µ posterior medians; share of draws with Σ positive definite.*
+
+**Stability of the coefficient draws.** Largest companion-matrix eigenvalue modulus per draw (above 1: the draw's VAR is explosive):
+
+```{r roots}
+tab(rbind(
+  do.call(rbind, lapply(runs, function(r) data.frame(draws = paste("production,", r$method),
+    median = median(r$mcmc$max_modulus), q95 = quantile(r$mcmc$max_modulus, 0.95, names = FALSE),
+    max = max(r$mcmc$max_modulus), share_above_1 = mean(r$mcmc$max_modulus > 1)))),
+  if (!is.null(res$roots_origins)) data.frame(draws = paste("stability check, origin", res$roots_origins$origin),
+    median = res$roots_origins$median, q95 = res$roots_origins$q95, max = res$roots_origins$max,
+    share_above_1 = res$roots_origins$share_above_1)), 4)
+```
+
+*Stability-check rows: method `none`, sample to the origin, 1,000 draws at the origin's hyperparameter mode.*
+
+Every draw has its largest root slightly above 1, in both runs and at every origin; no stationarity restriction is imposed (Crump et al. 2021 impose none). The simulation recovery check found the same in samples drawn from a stable model (largest root 0.9999): roots at or slightly above 1 are what this prior and these data give for a highly persistent system, not a sign that the truth is explosive. Whether this matters for forecasts is examined at 40 quarters with the forecast reasonableness checks.
+
+# 2. Residuals
+
+```{r resid-summary}
+tab(do.call(rbind, lapply(runs, function(r) data.frame(
+  method = r$method, residual_quarters = r$residual_sample, cells = r$cells[["all"]],
+  beyond_3 = r$count_beyond_3[["all"]], beyond_3_expected_normal = round(r$cells[["all"]] * 2 * pnorm(-3)),
+  beyond_5 = nrow(r$outliers),
+  beyond_3_before_2020 = r$count_beyond_3[["pre_2020"]]))), 1)
+```
+
+*`beyond_3_expected_normal`: the count a normal distribution would give (0.27% of cells). More are expected: macro shocks have fat tails.*
+
+## Outliers beyond ±5
+
+```{r outliers, results = "asis"}
+for (r in runs) {
+  cat("\n**Method ", r$method, "**\n\n", sep = "")
+  print(tab(r$outliers, 2))
+  cat("\n")
+}
+```
+
+```{r grids, results = "asis"}
+for (r in runs) cat("![Standardized residuals, method ", r$method, ": cells beyond ±3 coloured (orange positive, blue negative; darker beyond ±5).](",
+                    fig(paste0("residual_grid_", r$method, ".png")), ")\n\n", sep = "")
+```
+
+## Autocorrelation
+
+A VAR with enough lags leaves residuals close to white noise. Per variable: autocorrelations at lags 1–8 and the Ljung–Box test of no autocorrelation up to lag 8. With 31 variables about 1.5 p-values below 0.05 are expected by chance.
+
+```{r acf, results = "asis"}
+show_acf <- function(a, label) {
+  cat("\n**", label, "**: Ljung–Box p < 0.05 for ", sum(a$ljung_box_p < 0.05), " of ", nrow(a),
+      " variables; largest |lag-1 autocorrelation| ", round(max(abs(a$acf_1)), 2), ".\n\n", sep = "")
+  a <- a[order(a$ljung_box_p), c("variable", "acf_1", "acf_2", "acf_4", "acf_8", "max_abs_acf", "ljung_box_p")]
+  print(tab(head(a, 8), 3))
+  cat("\n")
+}
+for (r in runs) {
+  show_acf(r$acf_all, paste0("Method ", r$method, ", residuals ", r$residual_sample))
+  if (!is.null(r$acf_pre)) show_acf(r$acf_pre, paste0("Method ", r$method, ", residuals to 2019Q4 only"))
+}
+```
+
+*The eight variables with the lowest Ljung–Box p-values.*
+
+## Correlations
+
+```{r pairs, results = "asis"}
+for (r in runs) {
+  cat("\n**Method ", r$method, "**: selected pairs (all residuals; to 2019Q4)\n\n", sep = "")
+  print(tab(r$cor_pairs, 2))
+  cat("\n")
+}
+```
+
+```{r cor-figs, results = "asis"}
+for (r in runs) cat("![Residual correlations to 2019Q4, method ", r$method, " (blue −1, white 0, orange +1).](",
+                    fig(paste0("residual_correlation_", r$method, ".png")), ")\n\n", sep = "")
+```

@@ -1,0 +1,25 @@
+Type: project
+Package: bvarusa
+Title: A Large Bayesian VAR of the US Economy with Scenarios
+Version: 0.0.1
+Description: Replication of Crump, Eusepi, Giannone, Qian and Sbordone (2021),
+    "A Large Bayesian VAR of the United States Economy" (FRBNY Staff Report 976),
+    with a conditional-forecast scenario engine and a Shiny site. This file only
+    declares dependencies for renv (explicit snapshot); the project is not an R package.
+Depends: R (>= 4.6.0)
+Imports:
+    BVAR,
+    coda,
+    jsonlite,
+    fredr,
+    targets,
+    yaml,
+    readxl,
+    quantmod,
+    scoringRules,
+    shiny,
+    plotly,
+    bslib,
+    quarto
+Suggests:
+    testthat (>= 3.0.0)

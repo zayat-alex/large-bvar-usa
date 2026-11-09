@@ -1,0 +1,155 @@
+/* app.css: layout and type of the site. Colours: French blue #0055A4 for
+   the main forecast and selected controls; a grey-blue ground (#EEF1F5)
+   for the side panel and settings, white for the charts. */
+
+body { margin: 0; background: #FFFFFF; color: #1B1F24; font-family: 'Public Sans', sans-serif; font-size: 14px; }
+a { color: #0055A4; }
+a:hover { color: #003D78; }
+
+.app { display: flex; flex-wrap: wrap; align-items: stretch; min-height: 100vh; }
+
+/* Side panel: title and tabs, full height. */
+.side { flex: 1 1 200px; max-width: 236px; box-sizing: border-box; background: #EEF1F5;
+        border-right: 1px solid #D3D9E1; border-top: 3px solid #0055A4; padding: 16px 16px 24px 24px; }
+.side h1 { margin: 0 0 18px 0; font-size: 19px; font-weight: 700; line-height: 1.2; color: #10203A; letter-spacing: -0.01em; }
+.side .form-group { margin: 0; }
+.side .radio { margin: 0; padding: 0; }
+.side .radio label { display: block; padding: 7px 0; font-size: 13px; cursor: pointer; color: #1B1F24; }
+.side .radio input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.side .radio label:has(input:checked) { color: #0055A4; font-weight: 700; }
+.side .radio label:has(input:focus-visible) { outline: 2px solid #0055A4; outline-offset: 2px; }
+
+/* Settings header, beside the side panel. */
+.main { flex: 999 1 640px; min-width: 0; display: flex; flex-direction: column; }
+.settings { display: block; background: #EEF1F5;
+            border-bottom: 1px solid #D3D9E1; border-top: 3px solid #0055A4; padding: 10px 28px 12px 28px; font-size: 12px; }
+.settings fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+.settings legend, .settings .setting > .form-group > .control-label {
+  float: none; width: auto; padding: 0; margin: 0 0 4px 0; font-size: 11px; font-weight: 600;
+  letter-spacing: 0.08em; text-transform: uppercase; color: #4F5660; }
+.settings .form-group, .settings .shiny-input-container { margin: 0; width: auto !important; max-width: none; }
+.settings label, .settings .checkbox span, .settings .radio span { font-size: 12px; line-height: 1.2; }
+.settings .checkbox, .settings .radio { margin: 0; padding: 0; min-height: 21px; display: flex; align-items: center; }
+.settings .checkbox label, .settings .radio label { display: flex; align-items: center; gap: 7px; font-weight: 400;
+                                                    padding: 0; margin: 0; cursor: pointer; }
+.settings input[type=checkbox], .settings input[type=radio] { accent-color: #0055A4; width: 14px; height: 14px; margin: 0;
+                                                              position: static; flex: none; }
+.settings .setting > .form-group > .shiny-options-group { padding-top: 16px; }
+
+/* Scenario list: three input columns aligned row by row. */
+.scenario-grid { display: flex; gap: 18px; }
+.scenario-grid .control-label { font-size: 11px; font-weight: 400; color: #4F5660; margin-bottom: 0; height: 16px; }
+.scenario-grid .checkbox, .scenario-grid .radio { height: 21px; }
+.swatch { flex: none; }
+
+/* History: a segmented control. */
+.setting-history .shiny-options-group { display: flex; padding-top: 16px; }
+.setting-history .radio-inline { margin: 0 !important; padding: 0 !important; display: inline-flex; }
+.setting-history .radio-inline input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.setting-history .radio-inline span { display: inline-block; padding: 6px 11px; border: 1px solid #B9C1CC; margin-left: -1px;
+                                      background: #FFFFFF; cursor: pointer; }
+.setting-history .radio-inline:first-child span { margin-left: 0; border-radius: 2px 0 0 2px; }
+.setting-history .radio-inline:last-child span { border-radius: 0 2px 2px 0; }
+.setting-history .radio-inline:has(input:checked) span { background: #0055A4; border-color: #0055A4; color: #FFFFFF; position: relative; }
+.setting-history .radio-inline:has(input:focus-visible) span { outline: 2px solid #10203A; outline-offset: 1px; }
+
+/* Charts. */
+.content { flex: 1 1 auto; padding: 16px 32px 32px 32px; box-sizing: border-box; }
+.chart-picker { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding-bottom: 12px;
+                margin-bottom: 18px; border-bottom: 1px solid #E3E7EC; font-size: 12px; }
+.chart-picker .form-group { margin: 0; width: 100%; align-self: stretch; }
+.chart-picker .control-label { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #4F5660; }
+.chart-picker .selectize-input { font-size: 12px; border-radius: 2px; }
+.chart-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(max(300px, calc((100% - 68px) / 3)), 1fr));
+              gap: 30px 34px; }
+.chart-card h2 { margin: 0 0 4px 0; font-size: 15px; font-weight: 600; }
+.chart-card .unit { margin-left: 6px; font-size: 12px; font-weight: 400; color: #4F5660; }
+
+.about { max-width: 760px; line-height: 1.55; }
+.about h2 { font-size: 17px; font-weight: 600; margin: 8px 0 6px 0; }
+.placeholder { color: #4F5660; }
+
+.footer { display: flex; flex-wrap: wrap; gap: 6px 24px; border-top: 1px solid #D3D9E1; padding: 12px 32px;
+          font-size: 11px; color: #4F5660; }
+
+/* Settings tab. */
+.settings-page { max-width: 1100px; }
+.settings-page h2 { font-size: 17px; font-weight: 600; margin: 4px 0 6px 0; }
+.settings-page > p { color: #4F5660; font-size: 13px; }
+.scenario-table { border-collapse: collapse; width: 100%; font-size: 13px; margin-bottom: 12px; }
+.scenario-table th { text-align: left; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
+                     color: #4F5660; border-bottom: 1px solid #1B1F24; padding: 6px 12px 6px 0; }
+.scenario-table td { vertical-align: top; border-bottom: 1px solid #E3E7EC; padding: 10px 12px 10px 0; }
+.scenario-table .form-group, .scenario-table .shiny-input-container { margin: 0; width: auto !important; }
+.scenario-table .checkbox { margin: 0; }
+.scenario-table input[type=checkbox] { accent-color: #0055A4; width: 15px; height: 15px; }
+.colour-input { width: 36px; height: 26px; padding: 0; border: 1px solid #B9C1CC; border-radius: 2px; background: #FFFFFF; cursor: pointer; }
+.scenario-type { font-size: 12px; color: #4F5660; }
+.scenario-description { color: #4F5660; line-height: 1.45; }
+.empty-note { color: #4F5660; margin: 0; }
+.scenario-table { table-layout: auto; }
+.scenario-table .col-narrow { width: 1%; white-space: nowrap; }
+.scenario-table .col-name { width: 220px; min-width: 200px; }
+.scenario-table .col-name input[type=text] { width: 100%; font-size: 13px; font-weight: 600; padding: 4px 6px;
+                                             border: 1px solid #C9D0D9; border-radius: 2px; }
+.scenario-table .scenario-type { margin-top: 4px; }
+.scenario-table label.control-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); margin: 0; }
+
+/* Data sections and the About table. */
+.data-section { margin-top: 28px; border-top: 1px solid #E3E7EC; padding-top: 10px; }
+.data-section summary { cursor: pointer; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
+                        color: #4F5660; padding: 6px 0; }
+.data-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 8px 0 12px 0; }
+.btn-download { font-size: 12px; padding: 5px 12px; border: 1px solid #0055A4; color: #0055A4; background: #FFFFFF; border-radius: 2px; }
+.btn-download:hover { background: #0055A4; color: #FFFFFF; }
+.data-note { font-size: 12px; color: #4F5660; max-width: 760px; }
+.data-table { max-height: 480px; overflow: auto; border: 1px solid #E3E7EC; }
+.data-table table { font-size: 12px; margin: 0; font-variant-numeric: tabular-nums; }
+.data-table th { position: sticky; top: 0; background: #FFFFFF; }
+.about { max-width: 1100px; }
+.about p { max-width: 760px; }
+.about-table-wrap { overflow-x: auto; margin: 8px 0 16px 0; }
+.about-table { border-collapse: collapse; font-size: 12px; width: 100%; }
+.about-table th { text-align: left; font-weight: 600; border-bottom: 1px solid #1B1F24; padding: 6px 10px 6px 0; white-space: nowrap; }
+.about-table td { vertical-align: top; border-bottom: 1px solid #E3E7EC; padding: 6px 10px 6px 0; }
+.scenario-name { display: inline-flex; align-items: center; gap: 7px; cursor: help; }
+
+/* Narrow screens: the side panel spans the width above the settings. */
+@media (max-width: 700px) {
+  .side { max-width: none; flex-basis: 100%; border-right: 0; border-bottom: 1px solid #D3D9E1; }
+  .settings, .content, .footer { padding-left: 16px; padding-right: 16px; }
+}
+
+/* Chart title row with its Data button. */
+.chart-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.chart-data-btn { font-size: 11px; font-weight: 600; letter-spacing: 0.04em; padding: 2px 8px; line-height: 1.4;
+                  border: 1px solid #C9D0D9; border-radius: 2px; background: #FFFFFF; color: #0055A4; flex: none; }
+.chart-data-btn:hover { border-color: #0055A4; }
+.modal-title { font-size: 17px; font-weight: 600; }
+.modal-footer .btn { font-size: 12px; padding: 5px 14px; border-radius: 2px; }
+.modal-header { padding-bottom: 6px; }
+
+/* Header rows: the forecast settings or the response settings. */
+.settings-row { display: flex; flex-wrap: wrap; gap: 12px 40px; align-items: flex-start; }
+.setting-size .form-group { margin: 0; }
+.setting-size input { font-size: 12px; padding: 4px 6px; height: 30px; margin-top: 16px; }
+.setting-size .control-label { display: block; }
+.size-unit { font-size: 11px; color: #4F5660; margin-top: 4px; }
+
+/* Side panel: Forecasts groups the topic tabs. */
+.side .nav-group { font-size: 13px; font-weight: 600; color: #10203A; padding: 7px 0 2px 0; }
+.side .radio.sub label { padding: 6px 0 6px 14px; }
+.side .radio.top label { font-weight: 600; color: #10203A; }
+.side .radio.top label:has(input:checked) { color: #0055A4; }
+.side .nav-rule { border-top: 1px solid #D3D9E1; margin: 10px 0 6px 0; }
+
+/* The chart's data-table button: an icon. */
+.chart-data-btn { padding: 3px 6px; line-height: 0; color: #4F5660; }
+.chart-data-btn:hover, .chart-data-btn:focus-visible { color: #0055A4; border-color: #0055A4; }
+.irf-note { font-size: 12px; color: #4F5660; max-width: 900px; margin: 24px 0 0 0; line-height: 1.5; }
+.settings .setting-size .shiny-input-container { width: 110px !important; }
+.setting-shock .shiny-input-container { width: 300px !important; }
+.setting-shock .selectize-input { font-size: 12px; min-height: 30px; padding: 5px 8px; border-radius: 2px; margin-top: 16px; }
+.setting-shock .selectize-dropdown { font-size: 12px; }
+.setting-shock .selectize-dropdown .optgroup-header { font-size: 11px; font-weight: 600; letter-spacing: 0.06em;
+                                                     text-transform: uppercase; color: #4F5660; }

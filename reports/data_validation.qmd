@@ -1,0 +1,149 @@
+---
+title: "Data validation report"
+format:
+  html:
+    embed-resources: true
+    toc: true
+    df-print: kable
+params:
+  output_dir: "outputs/data_2026m09"
+execute:
+  echo: false
+  warning: false
+---
+
+```{r setup}
+# Reads the results saved by scripts/build_data.R; runs no checks itself.
+v      <- readRDS(file.path(params$output_dir, "validation.rds"))
+checks <- v$checks
+img    <- function(name) knitr::include_graphics(file.path(params$output_dir, "checks", paste0(name, ".png")))
+tab    <- function(df, digits = 4) knitr::kable(df, digits = digits, row.names = FALSE)
+```
+
+**Data:** `r v$sample`. Built `r format(v$built, "%Y-%m-%d %H:%M")`.
+
+The checks follow `docs/data.md`, sections 3 and 4. They report; none changes the data. Rows 30 (World Bank non-energy index) is a **proxy** for the S&P GSCI non-energy index.
+
+# 1. Coverage
+
+```{r}
+tab(checks$coverage$stats)
+```
+
+`first_available` is the first quarter after any backfill. GS2 starts in 1976:Q3 on FRED and is backfilled before that with the GSW 2-year par yield (section 9 below; docs/data.md 3.6). Series with `starts_by_start = FALSE` would have missing quarters (`NA`) at the start of the tables.
+
+# 2. Last-quarter completeness
+
+The sample ends at `r checks$last_quarter$data$sample_end`, the last quarter shared by all 31 series.
+
+```{r}
+tab(checks$last_quarter$stats)
+```
+
+# 3. Log safety
+
+```{r}
+tab(checks$log_safety$stats)
+```
+
+# 4. Aggregation check (project-side monthly averaging)
+
+GS10 averaged to quarterly by the project's `monthly_to_quarterly()` from ALFRED monthly data, against QD's GS10. Validates the averaging used for GS2, WTISPLC and the World Bank index.
+
+```{r}
+tab(checks$aggregation$stats)
+img("aggregation")
+```
+
+# 5. Dollar index (docs/data.md 3.1)
+
+QD's TWEXAFEGSMTHx (run vintage) against TWEXMMTH from the last QD vintage that carries it. Up to 2005 the QD series is TWEXMMTH rescaled; from 2006 it is the AFE index.
+
+```{r}
+tab(checks$dollar$stats)
+img("dollar")
+```
+
+To judge whether the post-2006 differences matter, the table below compares them with the series' own movements over the AFE segment (from 2006:Q2):
+
+```{r}
+tab(checks$dollar$context, 3)
+```
+
+# 6. Break detection
+
+Quarter-to-quarter changes (100·Δln for log series, Δ for raw series) more than `r checks$breaks$stats$threshold_sd` standard deviations from the series mean. For review: real events are expected among them.
+
+```{r}
+tab(checks$breaks$data, 2)
+```
+
+# 7. API metadata
+
+```{r}
+tab(checks$metadata$stats)
+```
+
+# 8. Federal spending index (docs/data.md 3.5)
+
+BEA chain-type quantity index (B823RA3Q086SBEA, used for row 8) against chained-dollar FGCEC1, in several vintages.
+
+```{r}
+tab(checks$federal_index$stats)
+img("federal_index")
+```
+
+# 9. GS2 backfill (docs/data.md 3.6)
+
+GS2 (FRED, constant maturity) starts in 1976:Q3. Earlier quarters use the Gürkaynak–Sack–Wright 2-year par yield (Federal Reserve) unadjusted. Candidates compared with GS2 over the overlap, and in a backcast test (fit on 1981:Q3 onward, predict the first five years of GS2). The regression on GSW + GS1 + GS5 fits best and is the documented alternative.
+
+```{r}
+tab(checks$gs2_backfill$stats, 3)
+tab(checks$gs2_backfill$context)
+```
+
+Coefficients of the alternative (full overlap): `r paste(names(checks$gs2_backfill$coef_best), round(checks$gs2_backfill$coef_best, 4), sep = " = ", collapse = ", ")`.
+
+Backfilled quarters:
+
+```{r}
+a <- checks$gs2_backfill$audit; a$quarter <- format(a$quarter); tab(a, 3)
+img("gs2_backfill")
+```
+
+# 10. World Bank non-energy index (docs/data.md 3.3)
+
+Correlation of quarterly changes with QD producer price series, and comparison of the stored January 2026 and October 2026 releases (the October release stores one decimal; differences up to about 0.2% at low index levels are rounding).
+
+```{r}
+tab(checks$worldbank$stats)
+img("worldbank")
+```
+
+# 11. Realized volatility (docs/data.md 3.4)
+
+```{r}
+tab(checks$rvol$stats)
+```
+
+Daily moves larger than 10% since the sample start:
+
+```{r}
+tab(checks$rvol$data$big_moves)
+```
+
+Highest quarters:
+
+```{r}
+tab(checks$rvol$data$top, 1)
+img("rvol")
+```
+
+# 12. ALFRED as-of date (docs/data.md, section 1)
+
+Largest relative distance between QD's GDPC1 and PCEPILFE and the ALFRED series as of each date. The run uses the first date at which both match up to QD's rounding.
+
+```{r}
+tab(checks$vintage_date$stats, 6)
+img("vintage_date")
+```

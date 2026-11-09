@@ -1,0 +1,184 @@
+---
+title: "Forecast reasonableness"
+format:
+  html:
+    embed-resources: true
+    toc: true
+    df-print: kable
+params:
+  output_dir: "outputs/checks_forecast_review"
+execute:
+  echo: false
+  warning: false
+---
+
+```{r setup}
+# Reads the results saved by scripts/check_forecast_review.R; runs no checks itself.
+r   <- readRDS(file.path(params$output_dir, "forecast_review.rds"))
+tab <- function(df, digits = 2) knitr::kable(df, digits = digits, row.names = FALSE)
+fig <- function(name) file.path(params$output_dir, name)
+M   <- names(r$methods)
+side <- function(part, cols = "q50", filter = NULL) {
+  x <- lapply(M, function(m) { d <- r$methods[[m]][[part]]; if (!is.null(filter)) d <- filter(d); d })
+  out <- x[[1]][, setdiff(names(x[[1]]), c("q05", "q16", "q50", "q84", "q95"))]
+  for (k in seq_along(M)) for (cc in cols) out[[paste(M[k], cc)]] <- x[[k]][[cc]]
+  out
+}
+```
+
+**Origin:** data through 2026Q2 (QD vintage 2026m09). **Runs:** `r paste(sapply(r$methods, "[[", "run_id"), collapse = "; ")`. COVID method `none` estimates on every quarter; `precovid_params` on data to 2019Q4; `exclude_window` (if run) on every quarter except the equations of 2020Q1–2021Q4; all forecast from the latest data (`docs/methodology.md`, section 11). The readings below were written for `none` and `precovid_params`; `exclude_window` is compared in the COVID-treatment comparison report. 1,000 posterior draws, one simulated path each, as published by the engine. Nothing is re-estimated; the engine's baseline is reproduced from its draws and seed to `r signif(max(sapply(r$methods, "[[", "reproduced")), 2)`.
+
+**Units.** Log series: year-on-year growth (log approximation, 100 × (log y_h − log y_{h−4})) unless stated; the SPF comparison uses exact annualized quarterly growth, as the SPF does. Rates: levels in percent. Horizon h = quarters after 2026Q2 (h1 = 2026Q3).
+
+# 0. The baseline forecast
+
+Median and 68% band of the untilted baseline, both COVID methods, 12 quarters from 2026Q3. Log series as year-on-year percent changes (computed exactly per path); rates (urate, gs2, gs10, baa) as levels in percent. Simulation noise in these medians is up to about 0.3 pp (section 7). Also saved as `baseline_table.csv`.
+
+```{r table, results = "asis"}
+for (m in M) {
+  t <- r$methods[[m]]$table
+  t$cell <- sprintf("%.1f [%.1f, %.1f]", t$q50, t$q16, t$q84)
+  w <- reshape(t[, c("variable", "measure", "quarter", "cell")], idvar = c("variable", "measure"),
+               timevar = "quarter", direction = "wide")
+  names(w) <- sub("^cell\\.", "", names(w))
+  cat("\n**Method ", m, "**\n\n", sep = "")
+  print(knitr::kable(w, row.names = FALSE))
+  cat("\n\n")
+}
+```
+
+# 1. Against the Survey of Professional Forecasters
+
+**Survey:** 2026Q3, released 14 August 2026 (Philadelphia Fed). Its panelists had data through 2026Q2, the same last quarter as the model; the survey's quarter (2026Q3) is the model's h1. The 2026Q4 survey is due in mid-to-late November 2026.
+
+**Measures.** Annualized quarter-on-quarter growth for the real series, payrolls, industrial production, housing starts and the price indexes (SPF inflation is the annualized quarterly rate); levels for unemployment, the 10-year Treasury and the Baa yield. Levels of the real series are not compared: the SPF's starting point is the BEA advance estimate, the model's the September 2026 vintage after the annual revision.
+
+**Differences in definition and information.** For real variables the SPF's growth rate is the growth of the median level forecast; the model's is the median of the growth rates over its paths. The SPF panel also saw the July and early August monthly releases (payrolls, CPI) and its forecasts carry judgment. Quarterly growth rates of a simulated path are noisy (section 7), so single-quarter differences below about 0.5 pp in GDP growth are within simulation noise. Differences are reported, not forced to zero.
+
+```{r spf-table, results = "asis"}
+for (m in M) {
+  s <- r$methods[[m]]$spf
+  s <- s[s$horizon %in% c(1, 2, 4), c("variable", "horizon", "spf", "q16", "q50", "q84", "spf_percentile")]
+  cat("\n**Method ", m, "**\n\n", sep = "")
+  print(tab(s, 2))
+  cat("\n\n")
+}
+```
+
+*`spf`: SPF median; `q16`, `q50`, `q84`: model median and 68% band; `spf_percentile`: share of the model's draws at or below the SPF median (50 = the SPF median equals the model's).*
+
+```{r spf-figs, results = "asis"}
+for (m in M) cat("![Model baseline (", m, ") against the SPF median, h1 = 2026Q3 to h5 = 2027Q3.](", fig(paste0("spf_", m, ".png")), ")\n\n", sep = "")
+```
+
+**Reading.**
+
+- *Inflation in 2026Q3.* Both methods forecast higher inflation than the SPF in the first quarter (CPI 4.5% and 4.2% annualized, SPF 2.3%; core PCE 3.3% under `none`, 2.7% under `precovid_params`, SPF 2.7%). Inflation in 2026Q2 was high (the SPF's own history column puts CPI at 6.1% annualized) and the model carries part of that momentum into the next quarter; the SPF panel also had the July CPI. By h4 the SPF median is inside the model's 68% band under both methods.
+- *Activity.* Under `none` the model's GDP path is close to the SPF in the first quarter (3.1% against 2.5%) and lower after (1.1% at h4, SPF 2.1%). Under `precovid_params` it is lower throughout (1.6%, then about 0%; SPF at the 65th–77th percentile), with industrial production and payrolls falling and unemployment rising to 4.9% by 2027Q2 (SPF 4.3%, at the model's 18th percentile).
+- *Housing.* Both methods forecast falls in housing starts and residential investment (medians −10% to −22% annualized) where the SPF expects about zero; the SPF median sits at the 65th–87th percentile, inside the 90% band.
+- *Rates.* The 10-year and Baa yields match the SPF closely under both methods.
+
+# 2. Plausible ranges
+
+Ranges from history: the 5th to 95th percentile over 1973Q1–2019Q4 of each variable's YoY growth (log series) or level (rates). The 2020–21 quarters are left out so that the ranges describe normal times.
+
+```{r ranges}
+tab(r$ranges[r$ranges$variable %in% c("rgdp", "rpce", "payems", "urate", "pce", "corepce", "cpi", "gs2", "gs10", "houst", "umich", "caputil"), ], 2)
+```
+
+```{r range-out, results = "asis"}
+for (m in M) {
+  rc <- r$methods[[m]]$ranges_check
+  cat("\n**Method ", m, "**: medians outside the range (h4, h8, h12, h20, h40)\n\n", sep = "")
+  print(tab(rc[rc$median_outside, c("variable", "horizon", "median", "low", "high", "share_below", "share_above")], 2))
+  cat("\n")
+}
+```
+
+*`share_below`, `share_above`: share of the draws outside the range.*
+
+# 3. Negative yields
+
+No zero lower bound is imposed. Share of draws with a negative yield:
+
+```{r neg}
+n <- side("negative", "share_negative", function(d) d[d$horizon %in% c(4, 8, 12, 20, 40), ])
+tab(n, 3)
+```
+
+# 4. Long horizons (40 quarters)
+
+The baseline is simulated to 40 quarters in this check only (the engine forecasts 20; the site shows 8–12). Medians and 90% bands against the 1973–2019 mean and range:
+
+![](`r fig("long_horizon.png")`)
+
+```{r long}
+l <- side("long", c("q50", "q05", "q95"),
+          function(d) d[d$horizon %in% c(4, 12, 20, 40) & d$variable %in% c("rgdp", "payems", "urate", "pce", "corepce", "gs2", "gs10"), ])
+tab(l, 2)
+```
+
+**Reading.** Activity settles near sensible values under both methods (GDP growth 1.6–1.9% at 10 years; unemployment 4.8–5.2%). Inflation and yields drift down: under `none` core PCE inflation reaches 1.2% and the 2-year yield 0.5% at 10 years; under `precovid_params` inflation falls to about 0% by 5 years, and the 2-year yield's median turns negative. Under `precovid_params` the inflation medians leave the historical range from 3 years ahead (h12), inside the window the site may show. No path explodes; the drift matches the post-1981 disinflation and decline in yields that a model in levels with intercepts extrapolates (methodology, long-run drift).
+
+# 5. The inflation anchor (entropic tilting)
+
+The anchor scenario reweights the baseline's paths so that the median of headline PCE inflation (YoY) 12 quarters ahead is 2.0% (Crump et al. 2021, Section 4.2). Weighted quantiles against the untilted ones:
+
+```{r tilt, results = "asis"}
+for (m in M) {
+  t <- r$methods[[m]]$tilt
+  t <- t[t$variable %in% c("rgdp", "urate", "pce", "corepce", "gs2", "gs10") & t$horizon %in% c(4, 12, 20), ]
+  w <- reshape(t[, c("forecast", "variable", "horizon", "q50", "q16", "q84")], idvar = c("variable", "horizon"),
+               timevar = "forecast", direction = "wide")
+  cat("\n**Method ", m, "**: effective sample size ", round(100 * r$methods[[m]]$tilt_ess_share), "% of the paths\n\n", sep = "")
+  print(tab(w, 2))
+  cat("\n")
+}
+```
+
+**Reading.** Under `none` the untilted median is already 1.9% at h12, so the anchor barely moves anything (effective sample size above 99%). Under `precovid_params` the untilted median is 0.4%, and anchoring at 2.0% reweights substantially (effective sample size about 60%): core PCE rises from 0.6% to 1.5% at h12, the 2-year yield from 1.6% to 2.4%, GDP growth falls slightly.
+
+# 6. COVID sensitivity
+
+**Baselines.** Medians of the two methods side by side, with 68% bands:
+
+```{r covid-base}
+b <- side("baseline_annual", c("q50", "q16", "q84"))
+tab(b, 2)
+```
+
+**Scenarios.** A scenario fixes levels (core PCE inflation of 3.4% in 2026, say), so its effect, scenario minus baseline, depends on the baseline it is measured against. The scenario forecast itself is shown as well.
+
+```{r covid-scen, results = "asis"}
+for (q in c("forecast", "effect")) {
+  s <- side("scenarios", c("q50", "q16", "q84"),
+            function(d) d[d$quantity == q & d$horizon %in% c(4, 8, 12) & d$variable %in% c("rgdp", "payems", "urate", "pce", "corepce", "gs2", "gs10"), ])
+  cat("\n**Scenario ", q, "s** (YoY growth or level", if (q == "effect") ", scenario minus baseline" else "", ")\n\n", sep = "")
+  print(tab(s[, setdiff(names(s), "quantity")], 2))
+  cat("\n")
+}
+```
+
+**Reading.** The baselines differ by more than simulation noise in almost every variable: `precovid_params` forecasts weaker activity (GDP 0.5% YoY at h4 against 1.8%; unemployment 5.8% at h8 against 4.8%) and much lower inflation after the first year. In the scenarios, the two methods' forecasts agree where the scenario fixes values (inflation and yields around 2026Q4) and diverge again after; scenario effects differ more than the scenario forecasts do, because the methods' baselines differ.
+
+# 7. Simulation noise of the published medians
+
+The baseline recomputed with a different seed; largest absolute difference of the medians over h1–h20, in percentage points:
+
+```{r noise}
+nz <- function(part) do.call(rbind, lapply(M, function(m) {
+  d <- r$methods[[m]][[part]]
+  data.frame(method = m, variable = names(tapply(abs(d$diff), d$variable, max)), max_abs_diff = as.vector(tapply(abs(d$diff), d$variable, max)))
+}))
+a <- nz("noise_annual"); q <- nz("noise_qoq")
+out <- data.frame(variable = unique(a$variable))
+for (m in M) {
+  out[[paste(m, "YoY or level")]] <- a$max_abs_diff[a$method == m][match(out$variable, a$variable[a$method == m])]
+  out[[paste(m, "QoQ ann.")]] <- q$max_abs_diff[q$method == m][match(out$variable, q$variable[q$method == m])]
+}
+tab(out, 2)
+```
+
+*YoY growth for log series, level for rates; QoQ annualized growth for log series only.*
+
+**Reading.** With one path per posterior draw, the published medians move by up to about 0.3 pp in GDP's YoY growth and 0.5 pp in its quarterly annualized growth when only the seed changes (method `none`); housing starts by 2–5 pp. These are of the same order as some of the differences read above, so more paths per draw would make the published medians more stable: the noise falls with the square root of the number of paths.

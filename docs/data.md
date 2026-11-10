@@ -17,7 +17,9 @@ The sources and retrieval dates of every raw file are listed in `data/raw/SOURCE
 - **Aggregation rule:** a quarter is used only if the whole quarter's data are available. For monthly series averaged in project code, a quarter with fewer than 3 months is dropped (in practice, the last quarter).
 - **Transformations:** applied to levels after assembly. `log` means `100 * ln(x)`, a level measured in log points, not a growth rate. `raw` means untransformed. There is no differencing: the model is a VAR in levels.
 - **Prior mean:** the Minnesota prior is centred on a random walk (RW) for every variable except realized volatility, which is centred on white noise (WN). Listed here because it is set per variable.
-- **Vintage consistency:** the QD CSV is a specific vintage. API series are taken from ALFRED as of the QD vintage date, so base years and revisions are consistent across sources. The as-of date is set in the run configuration (`config/run.yml`).
+- **Vintage consistency:** the QD CSV is a specific vintage, and API series are taken from ALFRED as of a date set in the run configuration (`config/run.yml`, `api_realtime_date`). The date depends on the use:
+  - **Published forecasts:** the retrieval date, so the forecast uses every release available when it is made. The QD vintage is then the latest published one, which may predate some releases and revisions that reach the API series; this is the usual compromise of a live forecast.
+  - **Backtests and pseudo-real-time exercises:** the QD vintage date, so base years and revisions are consistent across sources and the data match what was known at the forecast origin.
 
 ## 2. Series table
 
@@ -126,6 +128,8 @@ FRED's GS2 (constant maturity, from 1976-06) has its first complete quarter in 1
 ## 4. Validation checks
 
 Run after assembly; results are written to the validation report (`outputs/data_<vintage>/data_validation.html`).
+
+The checks run with every data build. Numbers quoted in this document come from the builds of the 2026m09 vintage (data through 2026:Q2), on which the model was developed; the update to the 2026m10 vintage (data through 2026:Q3) reran the checks but did not update the numbers quoted here.
 
 1. **Coverage:** each series starts by 1973:Q1; first and last non-missing quarter listed; any gap inside the sample flagged.
 2. **Last-quarter completeness:** series missing the final quarter listed; whole-quarter rule applied.

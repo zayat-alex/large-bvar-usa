@@ -16,7 +16,9 @@
 # mean):
 #   soft: {pce: yoy}   or   soft: {pce: {measure: yoy, statistic: mean}}
 #
-# All quarters assume data ending in 2026Q2.
+# The scenarios were written for data ending in 2026Q2. With data through
+# 2026Q3 they are kept as written, except that the oil scenarios' 2026Q3
+# values, now observed, were removed (a scenario fixes forecast quarters only).
 
 scenarios:
   # Headline numbers from J.P. Morgan's 2026 midyear economic outlook
@@ -87,17 +89,19 @@ scenarios:
     short_label: "Oil - Pessimistic"
     label: "Oil rises to $110 by early 2027"
     description: >
-      Conditional forecast. Fixes only the WTI oil price: $95.75 a barrel in
-      2026Q3 (its 2026Q2 average), $102.63 in 2026Q4 and $110 in 2027Q1 and
-      2027Q2. Everything else, including oil after 2027Q2, is left to the
-      model.
+      Conditional forecast. Fixes only the WTI oil price: $102.63 a barrel in
+      2026Q4 and $110 in 2027Q1 and 2027Q2. Everything else, including oil
+      after 2027Q2, is left to the model. The path was written with data to
+      2026Q2, from oil's 2026Q2 average ($95.75); the 2026Q3 average turned
+      out at $87.22.
   # Built by scripts/build_example_scenarios.R: the WTI price from its 2026Q2
   # average to its 2025 average ($65.46), halfway in logs in 2026Q4.
   - id: oil_normalizes
     short_label: "Oil - Optimistic"
     label: "Oil returns to its 2025 level by early 2027"
     description: >
-      Conditional forecast. Fixes only the WTI oil price: $95.75 a barrel in
-      2026Q3 (its 2026Q2 average), $79.17 in 2026Q4 and $65.46 (its 2025
-      average) in 2027Q1 and 2027Q2. Everything else, including oil after
-      2027Q2, is left to the model.
+      Conditional forecast. Fixes only the WTI oil price: $79.17 a barrel in
+      2026Q4 and $65.46 (its 2025 average) in 2027Q1 and 2027Q2. Everything
+      else, including oil after 2027Q2, is left to the model. The path was
+      written with data to 2026Q2, from oil's 2026Q2 average ($95.75); the
+      2026Q3 average turned out at $87.22.

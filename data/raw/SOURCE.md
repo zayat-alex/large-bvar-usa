@@ -21,13 +21,18 @@ All files are named `FRED-QD_<yyyy>m<mm>.csv`, where `<yyyy>m<mm>` is the vintag
 
 Layout (row structure checked on the 2026-08 file; all 2026 files and the 2025-12 file have the same 246 column names): row 1 column names (`sasdate` then 245 series), row 2 `factors` flags, row 3 `transform` codes, then one row per quarter. `sasdate` stamps a quarter with the first day of its last month (`3/1/1959` = 1959:Q1). The project does not use QD's transform codes (docs/data.md, section 1).
 
-Last quarter in each 2026 vintage: 2026-01 to 2026-03 end in 2025:Q4; 2026-04 to 2026-06 in 2026:Q1; 2026-07 to 2026-09 in 2026:Q2.
+**3. Vintage 2026-10 (1 file)**
+- Source: `https://www.stlouisfed.org/-/media/project/frbstl/stlouisfed/research/fred-md/quarterly/2026-10-qd.csv`, the file linked as both `2026-10.csv` and `current.csv` on the FRED-MD/FRED-QD page.
+- Method: downloaded with curl on 2026-11-10 and stored as `FRED-QD_2026m10.csv` (SHA-256 `be618c35f2d321ece4d3d77aa46f4af16a16718b912377813ec3f596cbcd49cb`). Contents unchanged; the same 246 column names as the 2026-09 vintage.
+- Built between 2026-10-29 and 2026-11-05: its 2026:Q3 real GDP is the advance estimate first published on 2026-10-29, and the series of the BLS productivity release published on 2026-11-05 (e.g. OPHNFB, ULCNFB) have no 2026:Q3 value. All 24 QD series the model uses have a 2026:Q3 value.
+
+Last quarter in each 2026 vintage: 2026-01 to 2026-03 end in 2025:Q4; 2026-04 to 2026-06 in 2026:Q1; 2026-07 to 2026-09 in 2026:Q2; 2026-10 in 2026:Q3.
 
 ## `alfred/`: ALFRED vintage histories
 
 - Source: FRED API (ALFRED real-time data), through `fredr::fredr_series_observations()` with `realtime_start = 2018-05-01` and `realtime_end` = the retrieval date (the date at the end of each file name). 2018-05-01 is the date of the first stored QD vintage.
 - Method: `scripts/pull_raw.R` with `config/raw_pulls.yml`. Native frequency, no aggregation by FRED (the API aggregates only for a single real-time date). Monthly series are averaged to quarterly in project code.
-- Retrieval dates: 2026-10-17 (first seven series), 2026-10-19 (`B823RA3Q086SBEA`, `WTISPLC`; the WTISPLC pull ran just after midnight local time on 2026-10-20, but FRED's date, US Central, was 2026-10-19, which is what the file name records).
+- Retrieval dates: 2026-10-17 (first seven series), 2026-10-19 (`B823RA3Q086SBEA`, `WTISPLC`; the WTISPLC pull ran just after midnight local time on 2026-10-20, but FRED's date, US Central, was 2026-10-19, which is what the file name records). Second retrieval, all eight series: 2026-11-09 (FRED's date; local date 2026-11-10), files `*_to_2026-11-09.csv` and `fred_metadata_2026-11-09.csv`, used from the 2026:Q3 data update (as-of date 2026-11-09).
 - File layout: one row per observation and real-time period. Columns `series_id`, `date` (first day of the month or quarter the value refers to), `value` (empty = no value published), `realtime_start`, `realtime_end` (the value was the published one over this period, inclusive). A `realtime_start` of 2018-05-01 means "already published on that date"; a `realtime_end` equal to the retrieval date means "still current on the retrieval date". The series as of date d is the set of rows with `realtime_start <= d <= realtime_end`.
 
 | File | Native frequency | Rows | Observations | Real-time periods | Use |
@@ -41,6 +46,14 @@ Last quarter in each 2026 vintage: 2026-01 to 2026-03 end in 2025:Q4; 2026-04 to
 | `GS10_vintages_2018-05-01_to_2026-10-17.csv` | monthly | 882 | 1953-04 to 2026-09 | 102 | aggregation check |
 | `WTISPLC_vintages_2018-05-01_to_2026-10-19.csv` | monthly | 984 | 1946-01 to 2026-09 | 116 | row 29 (docs/data.md 3.2) |
 | `MCOILWTICO_vintages_2018-05-01_to_2026-10-17.csv` | monthly | 502 | 1986-01 to 2026-09 | 115 | not used (former oil check; docs/data.md 3.2) |
+| `B823RA3Q086SBEA_vintages_2018-05-01_to_2026-11-09.csv` | quarterly | 1396 | 1947-01 to 2026-07 | 100 | row 8 |
+| `FGCEC1_vintages_2018-05-01_to_2026-11-09.csv` | quarterly | 750 | 1947-01 to 2026-07 | 101 | row 8 index check |
+| `HCOMPBS_vintages_2018-05-01_to_2026-11-09.csv` | quarterly | 3581 | 1947-01 to 2026-07 | 69 | row 14 |
+| `GS2_vintages_2018-05-01_to_2026-11-09.csv` | monthly | 605 | 1976-06 to 2026-10 | 103 | row 22 |
+| `GDPC1_vintages_2018-05-01_to_2026-11-09.csv` | quarterly | 1398 | 1947-01 to 2026-07 | 101 | vintage-date check |
+| `PCEPILFE_vintages_2018-05-01_to_2026-11-09.csv` | monthly | 3713 | 1959-01 to 2026-09 | 102 | vintage-date check |
+| `GS10_vintages_2018-05-01_to_2026-11-09.csv` | monthly | 883 | 1953-04 to 2026-10 | 103 | aggregation check |
+| `WTISPLC_vintages_2018-05-01_to_2026-11-09.csv` | monthly | 985 | 1946-01 to 2026-10 | 117 | row 29 |
 
 - `fred_metadata_2026-10-17.csv`: current metadata of the first seven series (title, units, frequency, seasonal adjustment, observation range, `last_updated`), as of the retrieval date.
 - `fred_metadata_B823RA3Q086SBEA_2026-10-19.csv`: the same for `B823RA3Q086SBEA` (Index 2017=100, seasonally adjusted, last updated 2026-09-30).
@@ -61,6 +74,7 @@ Last quarter in each 2026 vintage: 2026-01 to 2026-03 end in 2025:Q4; 2026-04 to
 - Method: `scripts/pull_raw.R yahoo` with `config/raw_pulls.yml` (requested from 1927-01-01).
 - Retrieval date: 2026-10-19.
 - Content: 24,816 trading days, 1927-12-30 to 2026-10-16. Columns `date`, `open`, `high`, `low`, `close`, `volume`, `adjusted`, as returned by Yahoo. No missing or non-positive closes.
+- Second file: `GSPC_daily_2026-11-09.csv` (SHA-256 `e336a9a28ffdb726f99809e15d48aaa2dfd763ef7922448854d1d5b708169a50`), retrieved 2026-11-09 (FRED's date in the same run; local date 2026-11-10) by the same method: 24,831 trading days, 1927-12-30 to 2026-11-06, no missing closes. Used from the 2026:Q3 data update.
 - Checked on retrieval: two calendar gaps longer than 5 days, both real market closures (1933-03-03 to 1933-03-15, bank holiday; 2001-09-10 to 2001-09-17, after 9/11). There are no Saturday sessions before 1953, although the NYSE traded on Saturdays then; this does not affect the sample from 1973.
 
 ## `worldbank/`: World Bank commodity prices (Pink Sheet)
@@ -79,6 +93,12 @@ The World Bank replaces the monthly workbook with each release and offers no API
 - Method: downloaded with curl on 2026-10-19; renamed with release and retrieval dates. Contents unchanged. A copy downloaded by hand the same day was identical (same SHA-256) and was deleted.
 - Content as found: sheets `Mismatch Details`, `Monthly Prices`, `Monthly Indices`, `Description`, `Index Weights`. `Monthly Indices` is headed "Updated on October 02, 2026", rows 1960M01 to 2026M09. Compared with the January 2026 release: the title row is gone (headers one row higher), index values are stored with one decimal instead of full precision, and a `Mismatch Details` sheet (an internal comparison of Barley and Sorghum cells from 2020M09, one row apart) has replaced `AFOSHEET`.
 - Non-energy index compared with the January 2026 release over 1960M01–2025M12 (792 months): 787 months equal the January values rounded to one decimal; 2025M08 to 2025M12 differ by 0.3% to 0.5% (revisions).
+
+**3. November 2026 release (used from the 2026:Q3 data update)**
+- File: `CMO-Historical-Data-Monthly_release-2026-11-03_retrieved-2026-11-10.xlsx` (SHA-256 `3c8d9d8dbb48342fdbf24777c39a8ce8964cc2fd0958f72f6779e6e4ad99cde2`).
+- Source: the same address as the October release, now linked as "November 2026" from https://www.worldbank.org/en/research/commodity-markets (server last-modified 2026-11-03).
+- Method: downloaded with curl on 2026-11-10; renamed with release and retrieval dates. Contents unchanged.
+- Content as found: the same sheets as the October release; `Monthly Indices` is headed "Updated on November 03, 2026", rows 1960M01 to 2026M10. The non-energy index equals the October release in all 801 months they share; the new release adds 2026M10.
 
 ## `spf/`: Survey of Professional Forecasters, median forecasts
 

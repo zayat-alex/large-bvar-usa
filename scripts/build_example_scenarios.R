@@ -123,6 +123,10 @@ write_scenario("gs_inflation_oil_2026", list(
 # The two paths are symmetric: current oil in 2026Q3, halfway (in logs, i.e.
 # the geometric mean) to the end level in 2026Q4, the end level in 2027Q1
 # and 2027Q2.
+# With data through 2026Q3, 2026Q3 is observed and a scenario may fix only
+# forecast quarters: the stored files keep 2026Q4-2027Q2 (their 2026Q3 row
+# was removed by hand). Rerunning this script restores the 2026Q3 row, which
+# the engine then rejects.
 # Oil rises: the end level is high oil.
 # Oil normalizes: the end level is normal oil.
 lv <- utils::read.csv(file.path(cfg$data$output_dir, "levels.csv"), check.names = FALSE)

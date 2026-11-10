@@ -14,6 +14,8 @@ Everything is written in R; the estimator and the scenario engine are written fo
 
 **<https://zayat-alex.github.io/large-bvar-usa/>** shows the forecasts, scenarios and impulse responses of the published model. Readers choose which scenarios to show and which to treat as the baseline, switch between levels and growth rates, view differences between scenarios, and download the numbers behind every chart.
 
+The forecasts use data through 2026Q3 (FRED-QD vintage 2026m10, other sources as of 9 November 2026). The model was developed and checked on data through 2026Q2; the update to 2026Q3 re-estimated the published model and rebuilt its forecasts without rerunning the checks (`docs/methodology.md`, introduction).
+
 The website is a static page (`site/`), published with GitHub Pages: it reads tables exported from the model run and draws the charts in the browser, and it runs no model code. The same views are available as a Shiny app (`app/`), which reads the same export and runs locally in R (`docs/methodology.md`, section 15).
 
 How to read it:
@@ -61,7 +63,7 @@ Rscript site/build_site.R          # the static website's data and libraries
 
 Then view the website locally: serve the `site/` folder over http (for example `Rscript -e "httpuv::runStaticServer('site')"`; browsers do not load the data files from a `file://` address), or start the Shiny app from R with `shiny::runApp("app")`. Each stage rebuilds only what changed; results are fully determined by `config/run.yml`, its seeds and the raw files.
 
-Tests: `Rscript scripts/run_tests.R`. Check reports: `scripts/check_*.R` (each documents its stages); their results are in `reports/results/`, readable on GitHub.
+Tests: `Rscript scripts/run_tests.R`. Check reports: `scripts/check_*.R` (each documents its stages); their results, from the development runs on data through 2026Q2, are in `reports/results/`, readable on GitHub.
 
 The repository keeps the checks that support the data and modelling choices and those that test whether the model's results are reasonable. Further tests and checks were run during development and are not included here: of the code itself (the estimator against exact posterior moments and the `BVAR` package, the scenario engine's exact properties, the website against the model's outputs), of the computational set-up, and of the cost of running the model at full size. They are available on request.
 

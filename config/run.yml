@@ -7,25 +7,23 @@
 # ---- Data (docs/data.md, sections 1 and 2) ----
 data:
   raw_dir: data/raw                          # immutable raw files; sources and dates in data/raw/SOURCE.md
-  qd_vintage_file: fred_qd_vintages/FRED-QD_2026m09.csv   # latest stored vintage; last quarter 2026Q2
-  api_realtime_date: 2026-09-30              # ALFRED as-of date matching the QD vintage (docs/data.md, section 1); confirmed: GDPC1 and PCEPILFE match QD 2026m09 from this date on
-  worldbank_file: worldbank/CMO-Historical-Data-Monthly_release-2026-10-02_retrieved-2026-10-19.xlsx   # row 30; October 2026 release, treated as unrevised (docs/data.md 3.3)
-  yahoo_file: yahoo/GSPC_daily_2026-10-19.csv  # row 31; daily ^GSPC closes
-  yahoo_complete_through: 2026-10-18        # daily data complete up to this date (day before download); quarters ending later are dropped
+  qd_vintage_file: fred_qd_vintages/FRED-QD_2026m10.csv   # latest published vintage; last quarter 2026Q3
+  api_realtime_date: 2026-11-09              # ALFRED as-of date: the retrieval date, so the published forecast uses every release up to it (docs/data.md, section 1)
+  worldbank_file: worldbank/CMO-Historical-Data-Monthly_release-2026-11-03_retrieved-2026-11-10.xlsx   # row 30; November 2026 release, treated as unrevised (docs/data.md 3.3)
+  yahoo_file: yahoo/GSPC_daily_2026-11-09.csv  # row 31; daily ^GSPC closes
+  yahoo_complete_through: 2026-11-08        # daily data complete up to this date (day before download); quarters ending later are dropped
   # ALFRED vintage-history files, by series ID (model inputs and validation checks)
   alfred_files:
-    B823RA3Q086SBEA: alfred/B823RA3Q086SBEA_vintages_2018-05-01_to_2026-10-19.csv
-    HCOMPBS:    alfred/HCOMPBS_vintages_2018-05-01_to_2026-10-17.csv
-    GS2:        alfred/GS2_vintages_2018-05-01_to_2026-10-17.csv
-    FGCEC1:     alfred/FGCEC1_vintages_2018-05-01_to_2026-10-17.csv
-    GDPC1:      alfred/GDPC1_vintages_2018-05-01_to_2026-10-17.csv
-    PCEPILFE:   alfred/PCEPILFE_vintages_2018-05-01_to_2026-10-17.csv
-    GS10:       alfred/GS10_vintages_2018-05-01_to_2026-10-17.csv
-    WTISPLC:    alfred/WTISPLC_vintages_2018-05-01_to_2026-10-19.csv
+    B823RA3Q086SBEA: alfred/B823RA3Q086SBEA_vintages_2018-05-01_to_2026-11-09.csv
+    HCOMPBS:    alfred/HCOMPBS_vintages_2018-05-01_to_2026-11-09.csv
+    GS2:        alfred/GS2_vintages_2018-05-01_to_2026-11-09.csv
+    FGCEC1:     alfred/FGCEC1_vintages_2018-05-01_to_2026-11-09.csv
+    GDPC1:      alfred/GDPC1_vintages_2018-05-01_to_2026-11-09.csv
+    PCEPILFE:   alfred/PCEPILFE_vintages_2018-05-01_to_2026-11-09.csv
+    GS10:       alfred/GS10_vintages_2018-05-01_to_2026-11-09.csv
+    WTISPLC:    alfred/WTISPLC_vintages_2018-05-01_to_2026-11-09.csv
   alfred_metadata_files:
-    - alfred/fred_metadata_2026-10-17.csv
-    - alfred/fred_metadata_B823RA3Q086SBEA_2026-10-19.csv
-    - alfred/fred_metadata_WTISPLC_2026-10-19.csv
+    - alfred/fred_metadata_2026-11-09.csv
   # Backfills (docs/data.md 3.6): quarters before a series' first observation are
   # filled from a substitute measuring the same quantity, used without adjustment.
   backfill:
@@ -37,7 +35,7 @@ data:
   # Reference files used only by validation checks
   qd_twexmmth_file: fred_qd_vintages/FRED-QD_2020m03.csv   # last vintage with TWEXMMTH (dollar check, docs/data.md 3.1)
   worldbank_previous_file: worldbank/CMO-Historical-Data-Monthly_2026-10-19.xlsx   # January 2026 release (release comparison)
-  output_dir: outputs/data_2026m09                          # data tables, checks and reports for this vintage
+  output_dir: outputs/data_2026m10                          # data tables, checks and reports for this vintage
 
 # ---- Sample ----
 sample:

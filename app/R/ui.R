@@ -196,6 +196,7 @@ scenario_settings_row <- function(row, listed, colour, name) {
   colour_id <- paste0("colour_", row$id)
   type <- switch(row$type, baseline = "unconditional forecast", tilted = "tilted to targets (soft conditions)",
                  hard = "conditional forecast (fixed paths)", row$type)
+  if (!is.null(row$base) && !is.na(row$base)) type <- paste0(type, ", built on ", row$base_label)
   htmltools::tags$tr(
     htmltools::tags$td(class = "col-narrow",
       shiny::checkboxInput(paste0("list_", row$id), sr_only(paste("List", row$label)), listed)),

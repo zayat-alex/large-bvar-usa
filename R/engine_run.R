@@ -209,22 +209,44 @@ engine_baseline <- function(inputs, settings) {
 #' minus the baseline mean averaged over draws. The weights belong to paths,
 #' not to draws, so it has no distribution over draws.
 #'
+#' Built on a base (a tilted forecast, docs/methodology.md section 9.4,
+#' "Scenarios built on a tilted forecast"): the paths are drawn given the
+#' scenario's fixed cells as usual, and its quantiles are weighted with the
+#' base's tilting weights. This is valid because every scenario of a run
+#' uses the same seed, so path j of the scenario and path j of the base come
+#' from the same random shocks; the base reweights those shock histories,
+#' and the scenario runs the reweighted histories through its conditions.
+#' It needs the same number of paths per draw (checked).
+#'
 #' @param conditions H x n matrix in model units, NA = free (read_scenario()).
 #' @param inputs Output of engine_inputs().
 #' @param settings Output of engine_settings().
 #' @param baseline_mean The baseline's `mean` (draws x H x n).
 #' @param targets NULL or a table of soft targets (soft_targets()).
+#' @param base NULL, or list(id, weights, ess, ess_share) of the base
+#'   (run_engine_scenario()); not together with targets.
 #' @return List: conditions, paths, mean (E[y | C, theta] per draw),
 #'   effect (mean - baseline_mean per draw), quantiles (of the paths,
 #'   weighted if tilted), effect_quantiles, fixed_cells, fixed_max_error
 #'   (largest |path - condition| over fixed cells and paths), seconds; if
 #'   tilted also quantiles_untilted and tilt (targets, weights, gamma,
-#'   iterations, ess, ess_share, ess_warning, kl, check, effect).
-engine_scenario <- function(conditions, inputs, settings, baseline_mean, targets = NULL) {
+#'   iterations, ess, ess_share, ess_warning, kl, check, effect); if built
+#'   on a base also quantiles_unweighted and base (id, weights, ess,
+#'   ess_share).
+engine_scenario <- function(conditions, inputs, settings, baseline_mean, targets = NULL, base = NULL) {
   t0 <- proc.time()[["elapsed"]]
   tilted <- !is.null(targets) && nrow(targets) > 0
-  n_paths <- if (tilted) settings$tilting$paths_per_draw else settings$paths_per_draw
+  if (tilted && !is.null(base)) stop("a scenario with a base cannot have soft targets of its own")
+  # A based scenario draws as many paths as its (tilted) base, so path j of
+  # both comes from the same random shocks.
+  n_paths <- if (tilted || !is.null(base)) settings$tilting$paths_per_draw else settings$paths_per_draw
   out <- engine_forecast(conditions, inputs, settings, n_paths)
+  if (!is.null(base)) {
+    if (length(base$weights) != dim(out$paths)[1]) stop("base ", base$id, " has another number of paths")
+    out$quantiles_unweighted <- out$quantiles
+    out$quantiles <- engine_quantiles(out$paths, settings$quantiles, inputs$quarters, base$weights)
+    out$base <- base
+  }
   if (!identical(dim(baseline_mean), dim(out$mean))) stop("baseline mean does not match the scenario's draws")
   out$conditions <- conditions
   out$effect <- out$mean - baseline_mean
@@ -324,9 +346,14 @@ run_engine_baseline <- function(run_dir, series, lags, settings) {
 #' @param run_dir,series,lags,settings As in run_engine_baseline().
 #' @param soft The scenario's soft conditions (scenario_soft()); NULL or zero
 #'   rows for a scenario with hard conditions only.
+#' @param base_file NULL, or the file written by this function for the
+#'   scenario's base (scenario_base()): a tilted scenario that fixes no cell,
+#'   computed from the same draws with the same number of paths. Its tilting
+#'   weights are reused (docs/methodology.md, section 9.4, "Scenarios built
+#'   on a tilted forecast").
 #' @return Path of the file written.
 run_engine_scenario <- function(id, scenario_file, baseline_file, run_dir, series, lags, settings,
-                                soft = NULL) {
+                                soft = NULL, base_file = NULL) {
   inputs <- engine_inputs(run_dir, series, lags, settings$horizon)
   baseline <- readRDS(baseline_file)
   if (!identical(baseline$inputs$draws_md5, inputs$draws_md5)) {
@@ -334,8 +361,17 @@ run_engine_scenario <- function(id, scenario_file, baseline_file, run_dir, serie
   }
   conditions <- read_scenario(scenario_file, inputs$variables, inputs$last_observed, settings$horizon, soft)
   targets <- soft_targets(scenario_file, inputs$variables, inputs$last_observed, settings$horizon, soft, series)
-  out <- engine_scenario(conditions, inputs, settings, baseline$mean, targets)
+  base <- NULL
+  if (!is.null(base_file)) {
+    b <- readRDS(base_file)
+    if (!identical(b$draws_md5, inputs$draws_md5)) stop("base ", b$id, " was computed from other draws; rerun it first")
+    if (is.null(b$tilt)) stop("base ", b$id, " is not tilted")
+    if (b$fixed_cells > 0) stop("base ", b$id, " fixes cells; a base may have soft conditions only")
+    base <- list(id = b$id, weights = b$tilt$weights, ess = b$tilt$ess, ess_share = b$tilt$ess_share)
+  }
+  out <- engine_scenario(conditions, inputs, settings, baseline$mean, targets, base)
   out$id <- id
+  out$draws_md5 <- inputs$draws_md5
   out$file <- scenario_file
   out$file_md5 <- unname(tools::md5sum(scenario_file))
   path <- file.path(engine_dir(run_dir), paste0("scenario_", id, ".rds"))
@@ -426,8 +462,9 @@ write_engine_meta <- function(run_dir, run_id, settings, files) {
            ess = s$tilt$ess, ess_share = s$tilt$ess_share, ess_warning = s$tilt$ess_warning,
            iterations = s$tilt$iterations, kl = s$tilt$kl,
            largest_miss = max(abs(s$tilt$check$achieved - s$tilt$check$goal)))
+    base <- if (is.null(s$base)) NULL else list(id = s$base$id, ess_share = s$base$ess_share)
     list(id = s$id, file = s$file, file_md5 = s$file_md5, fixed_cells = s$fixed_cells,
-         fixed_max_error = s$fixed_max_error, tilting = tilt, seconds = s$seconds)
+         fixed_max_error = s$fixed_max_error, tilting = tilt, base = base, seconds = s$seconds)
   })
   irf <- readRDS(files[basename(files) == "irf.rds"])
   meta <- list(

@@ -32,7 +32,9 @@
 # cells, a conditional forecast) or tilted (soft targets imposed by entropic
 # tilting, Crump et al. 2021, Section 4.2), as in R/engine_run.R:
 #   - forecast quantiles: over paths; weighted by the tilting weights for a
-#     tilted object (weighted_quantiles(), R/tilting.R).
+#     tilted object (weighted_quantiles(), R/tilting.R), and by its base's
+#     tilting weights for a hard scenario built on a tilted base (objects
+#     column `base`; docs/methodology.md, section 9.4).
 # Differences between objects are not exported: the app takes them as the
 # difference between two objects' medians, for whichever pair the reader
 # chooses, so any object can serve as the reference. (The engine's
@@ -353,20 +355,22 @@ build_bundle <- function(baseline, scenarios, irf, history, series, index, setti
   }
   objects <- data.frame(id = "baseline", label = "Baseline", short_label = "Unconditional",
                         description = "The model's unconditional forecast.",
-                        type = "baseline", fixed_cells = 0L, ess_share = NA_real_)
+                        type = "baseline", fixed_cells = 0L, ess_share = NA_real_, base = NA_character_)
   forecasts <- list(export_forecast(baseline$paths, history, "baseline", vars, quarters, probs))
   conditions <- list(); targets <- list()
   for (id in names(scenarios)) {
     s <- scenarios[[id]]
     tilted <- !is.null(s$tilt)
+    based <- !is.null(s$base)                 # built on a tilted base: weighted with the base's weights
     k <- match(id, index$id)
     if (is.na(k)) stop("scenario ", id, " is not in the scenario index")
     short <- if (is.null(index$short_label)) index$label[k] else index$short_label[k]
     objects <- rbind(objects, data.frame(id = id, label = index$label[k], short_label = short,
                                          description = index$description[k],
                                          type = if (tilted) "tilted" else "hard", fixed_cells = s$fixed_cells,
-                                         ess_share = if (tilted) s$tilt$ess_share else NA_real_))
-    w <- if (tilted) s$tilt$weights else NULL
+                                         ess_share = if (tilted) s$tilt$ess_share else if (based) s$base$ess_share else NA_real_,
+                                         base = if (based) s$base$id else NA_character_))
+    w <- if (tilted) s$tilt$weights else if (based) s$base$weights else NULL
     forecasts[[id]] <- export_forecast(s$paths, history, id, vars, quarters, probs, w)
     if (tilted) {
       ck <- s$tilt$check
@@ -426,7 +430,7 @@ export_meta <- function(cfg, settings, engine_meta, engine_meta_file, history, b
                     tilting_paths_per_draw = engine_meta$settings$tilting$paths_per_draw,
                     conditional_method = engine_meta$settings$method, seed = engine_meta$settings$seed,
                     quantiles = unlist(cfg$quantiles)),
-    objects = bundle$objects[c("id", "label", "short_label", "type", "fixed_cells", "ess_share")],
+    objects = bundle$objects[c("id", "label", "short_label", "type", "fixed_cells", "ess_share", "base")],
     transforms = list(
       level = "model units: 100 ln(x) for log series, natural units for rates",
       natural = "x = exp(level / 100), log series only",

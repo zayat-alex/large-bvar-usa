@@ -44,6 +44,35 @@ test_that("a tilted scenario reproduces the reference and keeps its hard cells",
                  "effective sample size")
 })
 
+test_that("a scenario built on a tilted base reuses the base's weights on its own paths", {
+  # The base: the unconditional paths tilted to the targets (no fixed cell).
+  free <- ref$conditions; free[] <- NA
+  base_run <- engine_scenario(free, ref$inputs, ref$settings, ref$baseline$mean, ref$targets)
+  base <- list(id = "b", weights = base_run$tilt$weights, ess = base_run$tilt$ess,
+               ess_share = base_run$tilt$ess_share)
+  # No condition of its own: the scenario is the base exactly.
+  same <- engine_scenario(free, ref$inputs, ref$settings, ref$baseline$mean, base = base)
+  expect_identical(same$paths, base_run$paths)
+  expect_identical(same$quantiles, base_run$quantiles)
+  # With fixed cells: the paths are the hard scenario's (with the base's
+  # number of paths, hence the same random shocks path by path), weighted
+  # with the base's weights; the fixed cells hold in every path.
+  based <- engine_scenario(ref$conditions, ref$inputs, ref$settings, ref$baseline$mean, base = base)
+  st <- ref$settings; st$paths_per_draw <- st$tilting$paths_per_draw
+  hard <- engine_scenario(ref$conditions, ref$inputs, st, ref$baseline$mean)
+  expect_identical(based$paths, hard$paths)
+  expect_identical(based$quantiles_unweighted, hard$quantiles)
+  expect_identical(based$quantiles, engine_quantiles(hard$paths, st$quantiles, ref$inputs$quarters, base$weights))
+  expect_lt(based$fixed_max_error, 1e-10)
+  expect_equal(based$base$id, "b")
+  # Not together with targets of its own; the weights must match the paths.
+  expect_error(engine_scenario(ref$conditions, ref$inputs, ref$settings, ref$baseline$mean, ref$targets, base),
+               "cannot have soft targets")
+  short <- base; short$weights <- short$weights[-1]
+  expect_error(engine_scenario(ref$conditions, ref$inputs, ref$settings, ref$baseline$mean, base = short),
+               "another number of paths")
+})
+
 test_that("the baseline is the unconditional forecast", {
   st <- ref$settings; st$paths_per_draw <- 1L
   b <- engine_baseline(ref$inputs, st)
@@ -159,6 +188,21 @@ test_that("the run-folder wrappers read a run and write the engine files", {
   meta <- jsonlite::read_json(write_engine_meta(run_dir, list(run_id = "test_run"), st,
                                                 c(f_base, f_irf, f_scen, f_soft)))
   expect_equal(meta$scenarios[[2]]$tilting$targets, 1L)
+
+  # A base must fix no cell: "soft" above also fixes b and c, so it is refused.
+  expect_error(run_engine_scenario("built", scen, f_base, run_dir, series, 2, st, base_file = f_soft),
+               "fixes cells")
+  # A base with soft conditions only, and a scenario built on it.
+  soft_only <- tempfile(fileext = ".csv")
+  on.exit(unlink(soft_only), add = TRUE)
+  writeLines(c("quarter,a", "2026Q3,2"), soft_only)
+  f_tilt <- run_engine_scenario("tilt", soft_only, f_base, run_dir, series, 2, st, soft)
+  f_built <- run_engine_scenario("built", scen, f_base, run_dir, series, 2, st, base_file = f_tilt)
+  built <- readRDS(f_built)
+  expect_equal(built$base$id, "tilt")
+  expect_identical(built$base$weights, readRDS(f_tilt)$tilt$weights)
+  meta <- jsonlite::read_json(write_engine_meta(run_dir, list(run_id = "test_run"), st, c(f_base, f_irf, f_built)))
+  expect_equal(meta$scenarios[[1]]$base$id, "tilt")
 
   # A baseline from other draws is refused.
   d <- readRDS(file.path(run_dir, "draws.rds")); d$sigma <- d$sigma * 1.01

@@ -44,7 +44,9 @@ APP_PALETTE_EXTRA <- "#6F7680"
 #' The scenarios of a bundle, with default colours.
 #'
 #' @param bundle The bundle.
-#' @return data.frame id, label (short label), description, type, colour,
+#' @return data.frame id, label (short label), description, type, base (the
+#'   id of the tilted forecast a scenario is built on, NA if none), base_label
+#'   (its short label), colour,
 #'   default (TRUE if listed in the header when the site opens); default
 #'   scenarios first, in APP_DEFAULT_SCENARIOS order, then the others in
 #'   bundle order.
@@ -60,8 +62,11 @@ scenario_catalog <- function(bundle) {
   free <- setdiff(APP_PALETTE, APP_SCENARIO_COLOURS)
   k <- seq_len(sum(is.na(colour)))
   colour[is.na(colour)] <- ifelse(k <= length(free), free[pmin(k, length(free))], APP_PALETTE_EXTRA)
+  base <- if (is.null(o$base)) rep(NA_character_, nrow(o)) else o$base
+  base_label <- label[match(base, o$id)]
   data.frame(id = ids, label = label[ord], description = o$description[ord], type = o$type[ord],
-             colour = colour, default = ids %in% first, stringsAsFactors = FALSE)
+             base = base[ord], base_label = base_label[ord], colour = colour, default = ids %in% first,
+             stringsAsFactors = FALSE)
 }
 
 #' Short labels and level units of every variable in the bundle.

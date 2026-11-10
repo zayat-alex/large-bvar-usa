@@ -737,7 +737,8 @@ function scenarioSettingsRow(s) {
        el("div", { class: "form-group shiny-input-container" },
           el("label", { class: "control-label", id: `name_${id}-label`, for: `name_${id}` }, srOnly(`Name of ${label}`)),
           name),
-       el("div", { class: "scenario-type" }, SCENARIO_TYPES[s.type] ?? s.type)),
+       el("div", { class: "scenario-type" }, (SCENARIO_TYPES[s.type] ?? s.type) +
+          (s.base ? `, built on ${s.base_label}` : ""))),
     el("td", { class: "scenario-description" }, s.description));
 }
 

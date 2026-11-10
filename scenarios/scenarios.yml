@@ -16,6 +16,13 @@
 # mean):
 #   soft: {pce: yoy}   or   soft: {pce: {measure: yoy, statistic: mean}}
 #
+# A scenario is built on the unconditional forecast unless it names a
+# `base`: a tilted scenario (soft conditions only) whose tilting weights it
+# reuses. It then shows its own conditions applied to that forecast, so its
+# difference from the base is the effect of its own conditions alone
+# (docs/methodology.md, section 9.4). A scenario with a base has no soft
+# conditions of its own, and a base has no base.
+#
 # The scenarios were written for data ending in 2026Q2. With data through
 # 2026Q3 they are kept as written, except that the oil scenarios' 2026Q3
 # values, now observed, were removed (a scenario fixes forecast quarters only).
@@ -88,8 +95,10 @@ scenarios:
   - id: oil_rises
     short_label: "Oil - Pessimistic"
     label: "Oil rises to $110 by early 2027"
+    base: spf_2026q3_2028
     description: >
-      Conditional forecast. Fixes only the WTI oil price: $102.63 a barrel in
+      Conditional forecast built on the Baseline (the forecast tilted to the
+      Survey of Professional Forecasters). Fixes only the WTI oil price: $102.63 a barrel in
       2026Q4 and $110 in 2027Q1 and 2027Q2. Everything else, including oil
       after 2027Q2, is left to the model. The path was written with data to
       2026Q2, from oil's 2026Q2 average ($95.75); the 2026Q3 average turned
@@ -99,8 +108,10 @@ scenarios:
   - id: oil_normalizes
     short_label: "Oil - Optimistic"
     label: "Oil returns to its 2025 level by early 2027"
+    base: spf_2026q3_2028
     description: >
-      Conditional forecast. Fixes only the WTI oil price: $79.17 a barrel in
+      Conditional forecast built on the Baseline (the forecast tilted to the
+      Survey of Professional Forecasters). Fixes only the WTI oil price: $79.17 a barrel in
       2026Q4 and $65.46 (its 2025 average) in 2027Q1 and 2027Q2. Everything
       else, including oil after 2027Q2, is left to the model. The path was
       written with data to 2026Q2, from oil's 2026Q2 average ($95.75); the

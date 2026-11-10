@@ -158,6 +158,31 @@ test_that("the scenario index and the example files are well formed", {
   expect_equal(read_scenario_index(bad)$short_label, c("A", "Long B"))
 })
 
+test_that("a scenario's base is a tilted scenario without a base, and the scenario has no soft targets", {
+  bad <- tempfile(fileext = ".yml")
+  on.exit(unlink(bad))
+  tilted <- "  - {id: t, label: T, description: x, soft: {a: yoy}}"
+  writeLines(c("scenarios:", tilted, "  - {id: h, label: H, description: x, base: t}",
+               "  - {id: u, label: U, description: x}"), bad)
+  idx <- read_scenario_index(bad)
+  expect_equal(idx$base, c(NA, "t", NA))
+  expect_equal(scenario_base(idx, "h"), "t")
+  expect_true(is.na(scenario_base(idx, "u")))
+  # Each rule.
+  writeLines(c("scenarios:", "  - {id: h, label: H, description: x, base: h}"), bad)
+  expect_error(read_scenario_index(bad), "its own base")
+  writeLines(c("scenarios:", "  - {id: h, label: H, description: x, base: nope}"), bad)
+  expect_error(read_scenario_index(bad), "base nope is not in the index")
+  writeLines(c("scenarios:", "  - {id: u, label: U, description: x}", "  - {id: h, label: H, description: x, base: u}"), bad)
+  expect_error(read_scenario_index(bad), "base u is not tilted")
+  writeLines(c("scenarios:", tilted, "  - {id: t2, label: T2, description: x, soft: {a: yoy}, base: t}",
+               "  - {id: h, label: H, description: x, base: t2}"), bad)
+  expect_error(read_scenario_index(bad), "base t2 has a base of its own")
+  expect_error(read_scenario_index(bad), "t2: a scenario with a base cannot have soft conditions")
+  writeLines(c("scenarios:", "  - {id: h, label: H, description: x, base: [t, u]}"), bad)
+  expect_error(read_scenario_index(bad), "base must be one scenario id")
+})
+
 test_that("soft conditions are parsed, checked and read as targets", {
   # Short and long forms; the statistic defaults to the median.
   s <- parse_soft(list(a = "yoy", c = list(measure = "level", statistic = "mean")))

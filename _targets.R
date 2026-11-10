@@ -32,6 +32,14 @@ covid_methods <- unlist(yaml::read_yaml("config/run.yml")$covid$methods)
 # Likewise each scenario in the config gets its own engine target, so editing
 # one scenario file reruns only that scenario.
 scenario_ids <- as.character(unlist(yaml::read_yaml("config/run.yml")$scenarios))
+# A scenario built on a tilted base (scenarios.yml, `base`; docs/methodology.md
+# section 9.4) reuses the base's weights, so its target reads the base's
+# engine file: a rerun of the base reruns the scenarios built on it.
+scenario_bases <- vapply(scenario_ids, function(id) {
+  scenario_base(read_scenario_index("scenarios/scenarios.yml"), id)
+}, "")
+missing_base <- setdiff(stats::na.omit(scenario_bases), scenario_ids)
+if (length(missing_base)) stop("config/run.yml must list the base scenario(s): ", paste(missing_base, collapse = ", "))
 # The run whose bundle is exported (stage 5).
 export_method <- yaml::read_yaml("config/run.yml")$export$run
 
@@ -113,11 +121,13 @@ engine_targets <- function(method) {
   sym <- function(step) as.symbol(nm(step))
   scen_nm <- function(id) paste0("engine_scenario_", method, "_", id)
   scenario_targets <- lapply(scenario_ids, function(id) {
+    b <- scenario_bases[[id]]
+    base_file <- if (is.na(b)) NULL else as.symbol(scen_nm(b))     # the base's engine file
     tar_target_raw(scen_nm(id), bquote({
       .(sym("engine_run_files"))
       run_engine_scenario(.(id), .(as.symbol(paste0("scenario_file_", id))), .(sym("engine_baseline")),
                           .(sym("engine_run_dir")), series, engine_lags, engine_cfg,
-                          .(as.symbol(paste0("scenario_soft_", id))))
+                          .(as.symbol(paste0("scenario_soft_", id))), base_file = .(base_file))
     }), format = "file")
   })
   scenario_syms <- lapply(scenario_ids, function(id) as.symbol(scen_nm(id)))

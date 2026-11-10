@@ -14,7 +14,9 @@
 #   scenarios/scenarios.yml   the index: one entry per scenario with id,
 #                             label and description, and optionally `soft`,
 #                             the columns that hold soft targets (entropic
-#                             tilting, R/tilting.R) instead of fixed values;
+#                             tilting, R/tilting.R) instead of fixed values,
+#                             and `base`, a tilted scenario the scenario is
+#                             built on (its weights are reused);
 #   scenarios/<id>.csv        one row per quarter: a column `quarter`
 #                             (e.g. 2027Q1), then any subset of the model's
 #                             variables (short names). Values are absolute
@@ -74,17 +76,20 @@ forecast_quarters <- function(last_observed, horizon) {
 #' id (also the CSV file name, scenarios/<id>.csv), label (a short title)
 #' and description (what the scenario assumes and where its numbers come
 #' from), and optionally `short_label` (the name shown in the website's
-#' scenario list; the label if absent) and `soft`: the variables whose
-#' columns are soft conditions (see parse_soft()). Any other field is an
-#' error: a field the engine does not read would otherwise be ignored
-#' without notice.
+#' scenario list; the label if absent), `soft`: the variables whose
+#' columns are soft conditions (see parse_soft()), and `base`: the id of a
+#' tilted scenario the scenario is built on (see check_scenario_bases();
+#' without it, the scenario is built on the unconditional forecast). Any
+#' other field is an error: a field the engine does not read would
+#' otherwise be ignored without notice.
 #'
 #' @param path Path to scenarios.yml.
-#' @return data.frame with columns id, label, short_label, description and
-#'   soft (a list column: for each scenario the table of parse_soft(), zero
-#'   rows if it has no soft conditions); zero rows if the index is empty.
-#'   Stops if a field is missing or unknown, a soft entry is malformed, an
-#'   id is repeated or an id is not a plain file name.
+#' @return data.frame with columns id, label, short_label, description,
+#'   base (NA if none) and soft (a list column: for each scenario the table
+#'   of parse_soft(), zero rows if it has no soft conditions); zero rows if
+#'   the index is empty. Stops if a field is missing or unknown, a soft
+#'   entry is malformed, an id is repeated, an id is not a plain file name
+#'   or a base breaks the rules of check_scenario_bases().
 read_scenario_index <- function(path) {
   idx <- yaml::read_yaml(path)
   entries <- idx$scenarios
@@ -96,9 +101,12 @@ read_scenario_index <- function(path) {
     miss <- fields[!vapply(fields, function(f) is.character(e[[f]]) && length(e[[f]]) == 1 && nzchar(e[[f]]),
                            logical(1))]
     if (length(miss) > 0) stop("scenario entry ", k, " in ", path, " lacks: ", paste(miss, collapse = ", "))
-    extra <- setdiff(names(e), c(fields, "short_label", "soft"))
+    extra <- setdiff(names(e), c(fields, "short_label", "soft", "base"))
     if (length(extra) > 0) stop("scenario entry ", k, " in ", path, " has unknown field(s): ",
                                 paste(extra, collapse = ", "))
+    if (!is.null(e$base) && !(is.character(e$base) && length(e$base) == 1 && nzchar(e$base))) {
+      stop("scenario entry ", k, " in ", path, ": base must be one scenario id")
+    }
     soft[[k]] <- tryCatch(parse_soft(e$soft),
                           error = function(err) stop("scenario entry ", k, " in ", path, ": ",
                                                      conditionMessage(err), call. = FALSE))
@@ -110,6 +118,7 @@ read_scenario_index <- function(path) {
                       if (is.character(s) && length(s) == 1 && nzchar(s)) s else e$label
                     }, ""),
                     description = vapply(entries, function(e) trimws(e$description), ""),
+                    base = vapply(entries, function(e) if (is.null(e$base)) NA_character_ else e$base, ""),
                     stringsAsFactors = FALSE)
   out$soft <- soft
   # The id names the CSV file, so it must be a safe file name.
@@ -117,7 +126,55 @@ read_scenario_index <- function(path) {
   if (length(bad) > 0) stop("scenario ids must use lower-case letters, digits and _: ", paste(bad, collapse = ", "))
   dup <- unique(out$id[duplicated(out$id)])
   if (length(dup) > 0) stop("repeated scenario ids: ", paste(dup, collapse = ", "))
+  check_scenario_bases(out)
   out
+}
+
+#' Check the `base` fields of a scenario index.
+#'
+#' A scenario built on a base is weighted with the base's tilting weights
+#' (docs/methodology.md, section 9.4, "Scenarios built on a tilted
+#' forecast"): the base is a tilted forecast, and the scenario adds only its
+#' own fixed paths. So the rules are: the base
+#' is another scenario in the index; it has soft conditions (it is tilted);
+#' it has no base itself; and the scenario has no soft conditions of its
+#' own (its weights are the base's). That the base fixes no cell is checked
+#' by the engine, which reads the base's file.
+#'
+#' @param index data.frame with columns id, base and soft, as built by
+#'   read_scenario_index().
+#' @return TRUE invisibly; stops with every problem found otherwise.
+check_scenario_bases <- function(index) {
+  problems <- character(0)
+  for (k in which(!is.na(index$base))) {
+    id <- index$id[k]; b <- index$base[k]
+    j <- match(b, index$id)
+    if (b == id) {
+      problems <- c(problems, paste0(id, ": a scenario cannot be its own base"))
+    } else if (is.na(j)) {
+      problems <- c(problems, paste0(id, ": base ", b, " is not in the index"))
+    } else {
+      if (nrow(index$soft[[j]]) == 0) problems <- c(problems, paste0(id, ": base ", b, " is not tilted (no soft conditions)"))
+      if (!is.na(index$base[j])) problems <- c(problems, paste0(id, ": base ", b, " has a base of its own"))
+    }
+    if (nrow(index$soft[[k]]) > 0) {
+      problems <- c(problems, paste0(id, ": a scenario with a base cannot have soft conditions of its own"))
+    }
+  }
+  if (length(problems)) stop("scenario bases: ", paste(problems, collapse = "; "), call. = FALSE)
+  invisible(TRUE)
+}
+
+#' The base of one scenario in the index (NA if it is built on the
+#' unconditional forecast).
+#'
+#' @param index Output of read_scenario_index().
+#' @param id Scenario id.
+#' @return One id, or NA.
+scenario_base <- function(index, id) {
+  k <- match(id, index$id)
+  if (is.na(k)) stop("scenario not in the index: ", id)
+  index$base[k]
 }
 
 #' Parse the `soft` field of a scenario entry.

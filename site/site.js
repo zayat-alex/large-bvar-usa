@@ -537,11 +537,18 @@ async function loadIrf() {
   const res = await fetch("data/irf.json");
   if (!res.ok) throw new Error(`data/irf.json: HTTP ${res.status}`);
   IRF = await res.json();
-  const first = IRF.shocks[0].id;                               // the default shock is listed first
-  state.irf = { shock: first, units: "level", horizon: Math.max(...CORE.settings.irf_horizons), size: 1,
-                vars: irfDefaultResponses(first) };
+  state.irf = irfDefaults();
+  applySavedIrf(savedChoices.irf);                              // a returning reader's choices
   renderIrfHeader();
   buildIrfPanel();
+}
+
+// The default response settings: the first shock (the default shock is
+// listed first), its default responses, levels, the longest horizon, size 1.
+function irfDefaults() {
+  const first = IRF.shocks[0].id;
+  return { shock: first, units: "level", horizon: Math.max(...CORE.settings.irf_horizons), size: 1,
+           vars: irfDefaultResponses(first) };
 }
 
 // The shock size as the app reads it: a finite non-zero number, else 1.
@@ -559,7 +566,7 @@ function renderIrfHeader() {
     el("div", { class: "form-group shiny-input-container", style: "width:300px;" },
        el("label", { class: "control-label", id: "irf_shock-label", for: "irf_shock-selectized" }, "Shock"),
        el("div", {}, shockSelect)));
-  const sizeInput = el("input", { id: "irf_size", type: "number", class: "shiny-input-number form-control", value: "1",
+  const sizeInput = el("input", { id: "irf_size", type: "number", class: "shiny-input-number form-control", value: String(s.size),
                                   step: "0.25",
                                   oninput: (e) => { state.irf.size = readSize(e.target.value); renderIrf(false); } });
   const sizeUnit = el("div", { id: "irf_size_unit", class: "shiny-html-output size-unit" }, el("span", {}, irfShockUnit(s.shock)));
@@ -631,6 +638,7 @@ function setIrfVars(vars) {
 // Draw the IRF tab; with rebuild, also its cards (their units depend on
 // the response settings).
 function renderIrf(rebuild = true) {
+  saveChoices();                       // likewise for the response settings
   if (!IRF || state.page !== "irf") return;
   const s = state.irf;
   if (rebuild) {
@@ -777,11 +785,15 @@ function resetScenarios() {
 function settingsPanel() {
   return el("div", { class: "settings-page" },
     el("h2", {}, "Scenarios"),
-    el("p", {}, "Choose the scenarios listed in the header, their names and their colours. ",
-       "The choices last for this visit."),
+    el("p", {}, "Choose the scenarios listed in the header, their names and their colours."),
     el("div", { id: "scenario_table", class: "shiny-html-output" }),
     el("a", { href: "#", id: "reset_scenarios", class: "action-button",
-              onclick: (e) => { e.preventDefault(); resetScenarios(); } }, "Reset scenarios to default"));
+              onclick: (e) => { e.preventDefault(); resetScenarios(); } }, "Reset scenarios to default"),
+    el("h2", {}, "Your choices"),
+    el("p", {}, "The site remembers your choices (scenarios, names, colours, settings, charts and responses) ",
+       "in this browser and restores them on your next visit. They are not sent anywhere."),
+    el("a", { href: "#", id: "forget_choices", class: "action-button",
+              onclick: (e) => { e.preventDefault(); forgetChoices(); } }, "Forget my choices and restore the default view"));
 }
 
 // ---- Layout pieces (ui.R) ----
@@ -966,6 +978,7 @@ function setOverview(vars) {
 
 // Show the current tab, and on a forecast tab rebuild its cards and charts.
 function renderPage() {
+  saveChoices();
   for (const p of document.querySelectorAll(".page-panel")) p.hidden = p.id !== `panel-${state.page}`;
   document.getElementById("header-forecast").hidden = state.page === "irf";
   document.getElementById("header-irf").hidden = state.page !== "irf";
@@ -987,6 +1000,7 @@ function renderPage() {
 
 // Redraw the charts of the current tab (the cards stay).
 function renderCharts() {
+  saveChoices();                       // every change of the forecast choices passes here
   const vars = pageVariables(state.page);
   if (!vars) return;
   for (const v of vars) {
@@ -1011,23 +1025,139 @@ function renderFooter() {
   );
 }
 
+// ---- Remembered choices (static site only) ----
+
+// The reader's choices are kept in this browser's localStorage and restored
+// on the next visit; nothing leaves the browser. Only the choices that
+// differ from the site's defaults are stored, so a later change of the
+// defaults still reaches a reader who changed nothing. Stored values are
+// checked against the current data before use: a scenario, variable or
+// shock that no longer exists is dropped. If storage is unavailable (a
+// private window, blocked site data), the choices last for the visit.
+
+const STORAGE_KEY = "large-bvar-usa.choices.v1";
+let savedChoices = {};        // as read at start; its IRF part is applied when the IRF tab first opens
+let keepChoices = true;       // false while the page reloads after "forget"
+
+const sameList = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
+const sameSet = (a, b) => a.length === b.length && a.every((x) => b.includes(x));
+
+// The site's default choices, as the app's server: the default scenarios
+// listed and shown, bands and baseline on the first one.
+function defaultChoices() {
+  const cat = CORE.scenarios;
+  const listed = cat.filter((s) => s.default).map((s) => s.id);
+  return {
+    listed, show: [...listed], bands: listed.slice(0, 1), baseline: listed[0] ?? null,
+    colours: Object.fromEntries(cat.map((s) => [s.id, s.colour])),
+    names: Object.fromEntries(cat.map((s) => [s.id, s.label])),
+    mode: "forecast", growth: "yoy", history: CORE.settings.history[0].name,
+    overviewVars: [...CORE.settings.overview_default],
+  };
+}
+
+function readSavedChoices() {
+  try {
+    const x = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
+    return x && typeof x === "object" && !Array.isArray(x) ? x : {};
+  } catch (e) {
+    return {};
+  }
+}
+
+// Store the choices that differ from the defaults (none: remove the entry).
+function saveChoices() {
+  if (!keepChoices || !CORE) return;
+  const d = defaultChoices();
+  const out = {};
+  for (const k of ["listed", "overviewVars"]) if (!sameList(state[k], d[k])) out[k] = state[k];
+  for (const k of ["show", "bands"]) if (!sameSet(state[k], d[k])) out[k] = state[k];
+  for (const k of ["baseline", "mode", "growth", "history"]) if (state[k] !== d[k]) out[k] = state[k];
+  for (const k of ["colours", "names"]) {
+    const changed = Object.entries(state[k]).filter(([id, v]) => id in d[k] && v !== d[k][id]);
+    if (changed.length) out[k] = Object.fromEntries(changed);
+  }
+  if (IRF && state.irf) {
+    const di = irfDefaults();
+    const same = ["shock", "units", "horizon", "size"].every((k) => state.irf[k] === di[k]) &&
+                 sameList(state.irf.vars, di.vars);
+    if (!same) out.irf = state.irf;
+  } else if (savedChoices.irf) {
+    out.irf = savedChoices.irf;                       // the IRF tab was not opened: keep what was stored
+  }
+  try {
+    if (Object.keys(out).length) localStorage.setItem(STORAGE_KEY, JSON.stringify(out));
+    else localStorage.removeItem(STORAGE_KEY);
+  } catch (e) {
+    // storage unavailable: the choices last for this visit
+  }
+}
+
+// Apply stored forecast choices on top of the defaults, keeping only
+// values that are valid for the current data.
+function applySavedChoices(saved) {
+  const ids = CORE.scenarios.map((s) => s.id);
+  const knownIds = (a) => (Array.isArray(a) ? a.filter((x) => ids.includes(x)) : null);
+  const isColour = (c) => typeof c === "string" && /^#[0-9a-fA-F]{6}$/.test(c);
+  for (const [id, c] of Object.entries(saved.colours ?? {})) if (ids.includes(id) && isColour(c)) state.colours[id] = c;
+  for (const [id, n] of Object.entries(saved.names ?? {})) {
+    if (ids.includes(id) && typeof n === "string" && n.trim()) state.names[id] = n.trim();
+  }
+  const listed = knownIds(saved.listed);
+  if (listed) state.listed = ids.filter((x) => listed.includes(x));          // the catalog's order, as setListed()
+  const show = knownIds(saved.show);
+  state.show = (show ?? (listed ? state.listed : state.show)).filter((x) => state.listed.includes(x));
+  state.bands = (knownIds(saved.bands) ?? state.bands).filter((x) => state.listed.includes(x));
+  if (state.listed.includes(saved.baseline)) state.baseline = saved.baseline;
+  if (!state.listed.includes(state.baseline)) state.baseline = state.listed[0] ?? null;
+  if (["forecast", "difference"].includes(saved.mode)) state.mode = saved.mode;
+  if (["yoy", "qoq_ann", "natural"].includes(saved.growth)) state.growth = saved.growth;
+  if (CORE.settings.history.some((h) => h.name === saved.history)) state.history = saved.history;
+  if (Array.isArray(saved.overviewVars)) {
+    const vars = CORE.variables.map((v) => v.variable);
+    const ov = saved.overviewVars.filter((v) => vars.includes(v)).slice(0, CORE.settings.overview_max);
+    if (ov.length || !saved.overviewVars.length) state.overviewVars = ov;
+  }
+}
+
+// Apply stored response settings, once data/irf.json is loaded.
+function applySavedIrf(s) {
+  if (!s || typeof s !== "object") return;
+  if (IRF.shocks.some((x) => x.id === s.shock)) {
+    state.irf.shock = s.shock;
+    state.irf.vars = irfDefaultResponses(s.shock);
+  }
+  if (["level", "yoy"].includes(s.units)) state.irf.units = s.units;
+  if (CORE.settings.irf_horizons.includes(s.horizon)) state.irf.horizon = s.horizon;
+  if (Number.isFinite(s.size) && s.size !== 0) state.irf.size = s.size;
+  if (Array.isArray(s.vars)) {
+    const vars = CORE.variables.map((v) => v.variable);
+    const rv = s.vars.filter((v) => vars.includes(v)).slice(0, CORE.settings.overview_max);
+    if (rv.length || !s.vars.length) state.irf.vars = rv;
+  }
+}
+
+// Forget the stored choices and reload with the defaults.
+function forgetChoices() {
+  keepChoices = false;
+  try { localStorage.removeItem(STORAGE_KEY); } catch (e) { /* nothing stored */ }
+  location.reload();
+}
+
 // ---- Start ----
 
 async function start() {
   const res = await fetch("data/core.json");
   if (!res.ok) throw new Error(`data/core.json: HTTP ${res.status}`);
   CORE = await res.json();
-  // Initial choices, as the app's server: the default scenarios listed and
-  // shown, bands and baseline on the first one.
-  const cat = CORE.scenarios;
-  state.listed = cat.filter((s) => s.default).map((s) => s.id);
-  for (const s of cat) { state.colours[s.id] = s.colour; state.names[s.id] = s.label; }
-  state.show = [...state.listed];
-  state.bands = state.listed.slice(0, 1);
-  state.baseline = state.listed[0] ?? null;
+  // The defaults, then a returning reader's stored choices.
+  Object.assign(state, defaultChoices());
+  savedChoices = readSavedChoices();
+  applySavedChoices(savedChoices);
   state.known = [...state.listed];
-  state.history = CORE.settings.history[0].name;
-  state.overviewVars = [...CORE.settings.overview_default];
+  // Store the choices whenever the reader leaves or hides the page.
+  window.addEventListener("pagehide", saveChoices);
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") saveChoices(); });
   renderSidePanel();
   renderForecastHeader();
   renderFooter();

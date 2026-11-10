@@ -11,19 +11,33 @@
 #' Every scenario in the bundle can be listed; the reader changes the list
 #' on the Settings tab. The first one is the default baseline. Which
 #' forecast counts as the baseline is a judgement, so the reader can pick
-#' any of them. Ids not in the bundle are ignored.
-APP_DEFAULT_SCENARIOS <- c("baseline", "spf_2026q3_2028", "oil_rises", "oil_normalizes")
+#' any of them. The default baseline is the forecast tilted to the Survey of
+#' Professional Forecasters, not the unconditional forecast, which can still
+#' be listed. Ids not in the bundle are ignored.
+APP_DEFAULT_SCENARIOS <- c("spf_2026q3_2028", "oil_rises", "oil_normalizes")
 
-#' Default scenario colours, assigned in this order.
+#' Fixed colours of the published scenarios.
 #'
-#' The default scenarios take the first slots, the other scenarios of the
-#' bundle the next ones, so a scenario keeps its colour whatever else is
-#' switched on. The eight colours (blue, orange, plum, green, ochre, sky,
-#' rust, violet) were checked in this order for lightness, chroma,
-#' separation of neighbours under normal vision and the common
-#' colour-vision deficiencies, and contrast on white. A ninth scenario gets
-#' grey rather than a recycled colour. The reader can change any colour on
-#' the Settings tab.
+#' The default baseline keeps the site's first blue; the unconditional
+#' forecast is dark grey (the observed history is near-black, #1B1F24); the
+#' oil scenarios are dark red (higher prices) and dark green (lower prices);
+#' the scenarios after J.P. Morgan and Goldman Sachs are drawn in colours of
+#' those firms (a teal from J.P. Morgan's website, since its main colour,
+#' black, would read as history; Goldman Sachs blue).
+APP_SCENARIO_COLOURS <- c(spf_2026q3_2028 = "#0055A4", baseline = "#595F66", oil_rises = "#9E1B1B",
+                          oil_normalizes = "#1E6B34", jpm_midyear_2026 = "#1A7B99",
+                          gs_inflation_oil_2026 = "#7399C6")
+
+#' Colours of any other scenario, assigned in this order.
+#'
+#' Scenarios without a fixed colour take the palette's colours in turn,
+#' skipping those already fixed above, so a scenario keeps its colour
+#' whatever else is switched on. The eight colours (blue, orange, plum,
+#' green, ochre, sky, rust, violet) were checked in this order for
+#' lightness, chroma, separation of neighbours under normal vision and the
+#' common colour-vision deficiencies, and contrast on white. Once they run
+#' out, a scenario gets grey rather than a recycled colour. The reader can
+#' change any colour on the Settings tab.
 APP_PALETTE <- c("#0055A4", "#E0702E", "#A2337A", "#14936A", "#A88200", "#2B86C2", "#9A4A1E", "#6A55C2")
 APP_PALETTE_EXTRA <- "#6F7680"
 
@@ -40,10 +54,14 @@ scenario_catalog <- function(bundle) {
   label <- if (is.null(o$short_label)) o$label else o$short_label
   first <- intersect(APP_DEFAULT_SCENARIOS, o$id)
   ord <- c(match(first, o$id), setdiff(seq_len(nrow(o)), match(first, o$id)))
-  k <- seq_along(ord)
-  data.frame(id = o$id[ord], label = label[ord], description = o$description[ord], type = o$type[ord],
-             colour = ifelse(k <= length(APP_PALETTE), APP_PALETTE[pmin(k, length(APP_PALETTE))], APP_PALETTE_EXTRA),
-             default = o$id[ord] %in% first, stringsAsFactors = FALSE)
+  ids <- o$id[ord]
+  # Fixed colours first; the others take the free palette colours in order.
+  colour <- unname(APP_SCENARIO_COLOURS[ids])
+  free <- setdiff(APP_PALETTE, APP_SCENARIO_COLOURS)
+  k <- seq_len(sum(is.na(colour)))
+  colour[is.na(colour)] <- ifelse(k <= length(free), free[pmin(k, length(free))], APP_PALETTE_EXTRA)
+  data.frame(id = ids, label = label[ord], description = o$description[ord], type = o$type[ord],
+             colour = colour, default = ids %in% first, stringsAsFactors = FALSE)
 }
 
 #' Short labels and level units of every variable in the bundle.

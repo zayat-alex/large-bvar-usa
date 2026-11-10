@@ -68,7 +68,7 @@ scenarios:
   # inflation measures only headline PCE is targeted, as in the paper, to
   # leave the model as free as possible.
   - id: spf_2026q3_2028
-    short_label: "SPF-tilted"
+    short_label: "Baseline"
     label: "Baseline tilted to the SPF's 2028 inflation and growth (2026Q3 survey)"
     description: >
       Tilted forecast. The unconditional forecast reweighted, as little as

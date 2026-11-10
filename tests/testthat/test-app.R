@@ -181,10 +181,18 @@ test_that("the data table holds the charts' numbers and leaves out restricted hi
 
 test_that("every scenario of the bundle gets a fixed default colour", {
   cat <- app$scenario_catalog(ap_bundle)
-  expect_equal(cat$id, c("baseline", "hard", "soft"))              # the default ("baseline") first
-  expect_equal(cat$colour, app$APP_PALETTE[1:3])
-  expect_equal(cat$default, c(TRUE, FALSE, FALSE))
+  expect_equal(cat$id, c("baseline", "hard", "soft"))              # no default scenario here: bundle order
+  free <- setdiff(app$APP_PALETTE, app$APP_SCENARIO_COLOURS)
+  expect_equal(cat$colour, c(app$APP_SCENARIO_COLOURS[["baseline"]], free[1:2]))   # fixed, then free palette
+  expect_equal(cat$default, c(FALSE, FALSE, FALSE))
   expect_equal(cat$label, c("Unconditional", "H", "S"))            # short labels from the bundle
+  # A default scenario is listed first, with its fixed colour.
+  with_default <- ap_bundle
+  with_default$objects$id[with_default$objects$id == "soft"] <- app$APP_DEFAULT_SCENARIOS[1]
+  cat <- app$scenario_catalog(with_default)
+  expect_equal(cat$id[1], app$APP_DEFAULT_SCENARIOS[1])
+  expect_equal(cat$default, c(TRUE, FALSE, FALSE))
+  expect_equal(cat$colour[1], app$APP_SCENARIO_COLOURS[[app$APP_DEFAULT_SCENARIOS[1]]])
   # More scenarios than palette slots: grey, not a recycled colour.
   many <- ap_bundle
   many$objects <- do.call(rbind, c(list(ap_bundle$objects), lapply(1:8, function(i) {
@@ -239,9 +247,10 @@ test_that("every variable of the published bundle has a label, a source and rend
 test_that("the server: settings, the Settings tab, tables and downloads", {
   skip_if(is.null(pub), "app/bundle/bundle.rds not published (scripts/publish_bundle.R)")
   ids <- app$APP_DEFAULT_SCENARIOS
+  b <- ids[1]                                    # the default baseline
   extra <- setdiff(pub$objects$id, ids)[1]
   shiny::testServer(app$app_server(pub), {
-    session$setInputs(page = "overview", show = ids, bands = ids, baseline = "baseline", mode = "forecast",
+    session$setInputs(page = "overview", show = ids, bands = ids, baseline = b, mode = "forecast",
                       growth = "yoy", history = "5y", overview_vars = c("rgdp", "sp500", "wti"),
                       irf_shock = "recursive_gs2", irf_units = "level", irf_horizon = "20", irf_size = 0.25,
                       irf_vars = c("rgdp", "gs2"))
@@ -265,15 +274,16 @@ test_that("the server: settings, the Settings tab, tables and downloads", {
     expect_true(all(csv$Unit[csv$Variable == "WTI crude oil"] == "$ per barrel"))
     # Settings tab, in one change: unlist a scenario, list another, recolour, rename;
     # and the difference view, which hides the Bands column.
-    args <- list(list_oil_rises = FALSE, colour_baseline = "#000000", name_baseline = "Model forecast",
-                 mode = "difference", data_overview_wti = 1)   # also opens the oil chart's Data pop-up
+    args <- list(list_oil_rises = FALSE, mode = "difference", data_overview_wti = 1)   # also opens the oil chart's Data pop-up
+    args[[paste0("colour_", b)]] <- "#000000"
+    args[[paste0("name_", b)]] <- "Model forecast"
     args[[paste0("list_", extra)]] <- TRUE
     do.call(session$setInputs, args)
     session$elapse(600)
     expect_false("oil_rises" %in% listed()$id)
     expect_true(extra %in% listed()$id)
-    expect_equal(listed()$colour[listed()$id == "baseline"], "#000000")
-    expect_equal(listed()$label[listed()$id == "baseline"], "Model forecast")
+    expect_equal(listed()$colour[listed()$id == b], "#000000")
+    expect_equal(listed()$label[listed()$id == b], "Model forecast")
     html <- as.character(output$scenario_controls$html)
     expect_match(html, "Model forecast")
     expect_false(grepl(">Bands<", html))
@@ -286,10 +296,12 @@ test_that("the server: settings, the Settings tab, tables and downloads", {
     csv <- utils::read.csv(output$dl_overview, check.names = FALSE)
     expect_true(all(grepl("minus Model forecast$", csv$Series)))
     # A blank name falls back; reset restores the defaults.
-    session$setInputs(name_baseline = "  ", reset_scenarios = 1)
+    blank <- list(reset_scenarios = 1)
+    blank[[paste0("name_", b)]] <- "  "
+    do.call(session$setInputs, blank)
     session$elapse(600)
     expect_equal(listed()$id, ids)
-    expect_equal(listed()$label[1], "Unconditional")
-    expect_equal(listed()$colour[1], app$APP_PALETTE[1])
+    expect_equal(listed()$label[1], pub$objects$short_label[pub$objects$id == b])
+    expect_equal(listed()$colour[1], app$APP_SCENARIO_COLOURS[[b]])
   })
 })
